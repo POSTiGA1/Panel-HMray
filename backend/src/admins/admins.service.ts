@@ -826,8 +826,11 @@ export class AdminsService implements OnModuleInit {
       existing.quotaMode !== 'PER_PANEL'
     ) {
       const diff = data.balance - existing.balance;
-      if (diff > 0) {
-        updateData.totalAssigned = { increment: Math.round(diff) };
+      if (diff !== 0) {
+        updateData.totalAssigned = Math.max(
+          0,
+          Math.round(existing.totalAssigned + diff),
+        );
       }
     }
 

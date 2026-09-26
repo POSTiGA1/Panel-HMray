@@ -6,6 +6,11 @@ export type QuotaLedgerAction =
 /** Ledger label when the reseller spends one shared bucket on every assigned panel. */
 export const GLOBAL_POOL_TX_DESCRIPTION = 'Global pool — all panels';
 
+/**
+ * Super-admin balance edits must keep totalAssigned in sync with the net grant.
+ * Credits increase totalAssigned; deductions decrease it so "used = assigned − balance"
+ * only reflects reseller-created consumption (not revoked mistaken grants).
+ */
 export function nextQuotaLedger(
   existing: { balance: number; totalAssigned: number } | null,
   nextBalance: number,
@@ -30,7 +35,7 @@ export function nextQuotaLedger(
   return {
     balance,
     totalAssigned: undefined,
-    totalAssignedIncrement: diff > 0 ? diff : 0,
+    totalAssignedIncrement: diff,
     diff,
     action: diff > 0 ? 'ADMIN_RECHARGE' : diff < 0 ? 'ADMIN_DEDUCTION' : null,
   };

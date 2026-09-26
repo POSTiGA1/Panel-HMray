@@ -117,7 +117,7 @@ export class TrafficService {
         : {}),
     };
 
-    const [rows, total, creditAgg, debitAgg, usageAgg] =
+    const [rows, total, creditAgg, debitAgg, usageAgg, debitAllAgg] =
       await Promise.all([
         this.prisma.trafficTransaction.findMany({
           where,
@@ -144,11 +144,27 @@ export class TrafficService {
           _sum: { amount: true },
         }),
         this.prisma.trafficTransaction.aggregate({
-          where: { ...where, type: 'DEBIT' },
+          where: {
+            AND: [
+              where,
+              { type: 'DEBIT' },
+              // Super-admin quota revokes are not reseller consumption.
+              {
+                OR: [
+                  { action: null },
+                  { action: { not: 'ADMIN_DEDUCTION' } },
+                ],
+              },
+            ],
+          },
           _sum: { amount: true },
         }),
         this.prisma.trafficTransaction.aggregate({
           where: { ...where, type: 'USAGE_CHARGE' },
+          _sum: { amount: true },
+        }),
+        this.prisma.trafficTransaction.aggregate({
+          where: { ...where, type: 'DEBIT' },
           _sum: { amount: true },
         }),
       ]);
@@ -169,11 +185,12 @@ export class TrafficService {
     }));
 
     const credit = Number(creditAgg._sum.amount || 0);
-    const debit = Number(debitAgg._sum.amount || 0);
+    const debitConsumed = Number(debitAgg._sum.amount || 0);
+    const debitAll = Number(debitAllAgg._sum.amount || 0);
     const usage = Number(usageAgg._sum.amount || 0);
     const quota = await this.resolveLedgerQuota(adminId, panelId, overview, {
       credit,
-      used: debit + usage,
+      used: debitConsumed + usage,
     });
 
     return {
@@ -183,7 +200,8 @@ export class TrafficService {
       limit,
       totals: {
         credit: creditAgg._sum.amount?.toString() || '0',
-        debit: debitAgg._sum.amount?.toString() || '0',
+        debit: String(debitAll),
+        debitConsumed: String(debitConsumed),
       },
       quota,
     };

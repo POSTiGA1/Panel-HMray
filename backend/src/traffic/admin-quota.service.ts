@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { Prisma, QuotaMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateAdminTrafficSummary } from '../common/utils/traffic.util';
@@ -59,13 +59,88 @@ export function panelMatchesQuotaFilter(
 }
 
 @Injectable()
-export class AdminQuotaService {
+export class AdminQuotaService implements OnModuleInit {
+  private pastDeductionRepair: Promise<void> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly events?: DomainEventBusService,
     @Optional() private readonly policy?: PolicyEngine,
     @Optional() private readonly featureFlags?: FeatureFlagsService,
   ) {}
+
+  onModuleInit() {
+    void this.ensurePastDeductionRepair();
+  }
+
+  /**
+   * One-shot: past ADMIN_DEDUCTION rows left totalAssigned inflated (used looked
+   * like reseller consumption). Subtract those amounts once, then Fix A keeps
+   * totalAssigned in sync for future deductions.
+   */
+  private ensurePastDeductionRepair(): Promise<void> {
+    if (!this.pastDeductionRepair) {
+      this.pastDeductionRepair = this.repairPastAdminDeductions().catch(() => {
+        this.pastDeductionRepair = null;
+      });
+    }
+    return this.pastDeductionRepair;
+  }
+
+  private async repairPastAdminDeductions() {
+    const key = 'traffic.totalAssignedDeductionRepair.v1';
+    let cutoff: Date;
+    try {
+      const created = await this.prisma.systemSetting.create({
+        data: { key, value: JSON.stringify(Date.now()) },
+      });
+      cutoff = created.createdAt;
+    } catch {
+      return;
+    }
+
+    const rows = await this.prisma.trafficTransaction.groupBy({
+      by: ['adminId', 'panelId'],
+      where: {
+        action: 'ADMIN_DEDUCTION',
+        createdAt: { lte: cutoff },
+        NOT: { description: { contains: 'Provider deduction' } },
+      },
+      _sum: { amount: true },
+    });
+
+    for (const row of rows) {
+      const amount = Math.round(Number(row._sum.amount || 0));
+      if (amount <= 0) continue;
+      if (row.panelId) {
+        const q = await this.prisma.adminPanelQuota.findUnique({
+          where: {
+            adminId_panelId: { adminId: row.adminId, panelId: row.panelId },
+          },
+          select: { totalAssigned: true },
+        });
+        if (!q) continue;
+        await this.prisma.adminPanelQuota.update({
+          where: {
+            adminId_panelId: { adminId: row.adminId, panelId: row.panelId },
+          },
+          data: { totalAssigned: Math.max(0, q.totalAssigned - amount) },
+        });
+      } else {
+        const admin = await this.prisma.admin.findUnique({
+          where: { id: row.adminId },
+          select: { totalAssigned: true },
+        });
+        if (!admin) continue;
+        await this.prisma.admin.update({
+          where: { id: row.adminId },
+          data: {
+            totalAssigned: Math.max(0, admin.totalAssigned - amount),
+          },
+        });
+      }
+    }
+  }
 
   skipTrafficAccounting(admin: {
     role?: string | null;
@@ -681,8 +756,8 @@ export class AdminQuotaService {
             );
       if (patch) {
         nextBalance = patch.balance;
-        if (patch.totalAssignedIncrement > 0) {
-          nextAssigned += patch.totalAssignedIncrement;
+        if (patch.totalAssignedIncrement !== 0) {
+          nextAssigned = Math.max(0, nextAssigned + patch.totalAssignedIncrement);
         }
       }
       await this.prisma.$transaction(async (tx) => {
@@ -827,8 +902,13 @@ export class AdminQuotaService {
         where: { adminId_panelId: { adminId, panelId: spec.panelId } },
         data: {
           balance: patch.balance,
-          ...(patch.totalAssignedIncrement > 0
-            ? { totalAssigned: { increment: patch.totalAssignedIncrement } }
+          ...(patch.totalAssignedIncrement !== 0
+            ? {
+                totalAssigned: Math.max(
+                  0,
+                  existing.totalAssigned + patch.totalAssignedIncrement,
+                ),
+              }
             : {}),
           ...limits,
         },
@@ -884,6 +964,7 @@ export class AdminQuotaService {
   }
 
   async buildResellerOverview(adminId: string, filterPanelId?: string) {
+    await this.ensurePastDeductionRepair();
     const admin = await this.loadAdmin(adminId);
     const accountUnlimited =
       admin.unlimitedTraffic === true || admin.role === 'SUPER_ADMIN';

@@ -26,11 +26,22 @@ describe('nextQuotaLedger', () => {
     expect(patch.totalAssigned).toBeUndefined();
   });
 
-  it('debits an existing row and never goes below zero', () => {
+  it('debits an existing row and reduces totalAssigned so used stays stable', () => {
+    const patch = nextQuotaLedger(
+      { balance: 20 * 1024 ** 3, totalAssigned: 100 * 1024 ** 3 },
+      0,
+    );
+    expect(patch.balance).toBe(0);
+    expect(patch.action).toBe('ADMIN_DEDUCTION');
+    expect(patch.diff).toBe(-20 * 1024 ** 3);
+    expect(patch.totalAssignedIncrement).toBe(-20 * 1024 ** 3);
+  });
+
+  it('clamps balance at zero when target is negative', () => {
     const patch = nextQuotaLedger({ balance: 20 * 1024 ** 3, totalAssigned: 20 * 1024 ** 3 }, -1);
     expect(patch.balance).toBe(0);
     expect(patch.action).toBe('ADMIN_DEDUCTION');
-    expect(patch.totalAssignedIncrement).toBe(0);
+    expect(patch.totalAssignedIncrement).toBe(-20 * 1024 ** 3);
   });
 
   it('ignores an unchanged balance', () => {
