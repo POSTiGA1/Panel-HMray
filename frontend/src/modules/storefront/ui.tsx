@@ -10,6 +10,8 @@ import {
   KeyRound,
   LoaderCircle,
   QrCode,
+  RotateCcw,
+  Trash2,
   X,
 } from "lucide-react";
 import { formatBytes, formatDate, formatExpiry } from "@/lib/format";
@@ -1165,17 +1167,38 @@ export function ServiceListItem({
             <div className="flex items-center justify-between gap-2 px-5 pt-3 sm:hidden">
               <span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${chip}`}>{statusLabel}</span>
             </div>
-            <ServiceCard {...props} onHide={undefined} embedded />
-            {onHide ? (
-              <div className="flex justify-end border-t border-black/[0.05] px-5 py-2 dark:border-white/[0.06]">
-                <button
-                  type="button"
-                  disabled={hiding}
-                  onClick={onHide}
-                  className="store-focus-ring min-h-[40px] cursor-pointer rounded-xl px-3 text-[11.5px] font-semibold text-zinc-400 transition-colors duration-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-950/30"
-                >
-                  {t("حذف از لیست من", "Remove from my list")}
-                </button>
+            <ServiceCard {...props} onHide={undefined} canCancel={false} embedded />
+            {onHide || props.canCancel ? (
+              <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.05] px-4 py-3 dark:border-white/[0.06] sm:px-5">
+                {props.canCancel ? (
+                  props.cancelPending ? (
+                    <span className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-amber-500/12 px-3 text-xs font-bold text-amber-700 dark:text-amber-300">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 motion-reduce:animate-none" />
+                      {t("درخواست لغو در حال بررسی", "Cancel request under review")}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={props.cancelSubmitting}
+                      onClick={props.onRequestCancel}
+                      className="store-focus-ring inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] px-3 text-xs font-bold text-rose-600 transition-colors duration-200 hover:bg-rose-500/[0.12] disabled:opacity-50 dark:text-rose-400"
+                    >
+                      <RotateCcw size={14} aria-hidden />
+                      {t("لغو و بازگشت وجه", "Cancel & refund")}
+                    </button>
+                  )
+                ) : null}
+                {onHide ? (
+                  <button
+                    type="button"
+                    disabled={hiding}
+                    onClick={onHide}
+                    className="store-focus-ring ms-auto inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-zinc-500 transition-colors duration-200 hover:bg-black/[0.04] hover:text-rose-600 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/[0.06]"
+                  >
+                    <Trash2 size={14} aria-hidden />
+                    {t("حذف از لیست", "Remove from list")}
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </motion.div>

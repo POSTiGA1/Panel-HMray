@@ -34,6 +34,13 @@ import { buildSubscriptionLink } from "./subscription";
 import { compressReceiptImage } from "./receipt-image";
 import { useStorefrontLocale } from "./locale";
 import type { StorefrontStore } from "./types";
+import {
+  PickRow,
+  Sheet,
+  SheetButton as PrimaryButton,
+  SheetStepper as Stepper,
+  sheetFocusRing,
+} from "./portal-sheet";
 
 export type CustomerPaygSub = {
   id: string;
@@ -103,8 +110,7 @@ type Payment = StorefrontStore["payment"] | null | undefined;
 
 type BuyStep = "wallet" | "category" | "plan" | "devices" | "confirm" | "done";
 
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--store-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-900";
+const focusRing = sheetFocusRing;
 
 export function usePaygMoney() {
   const { isFa } = useStorefrontLocale();
@@ -236,203 +242,6 @@ function errMessage(err: any, fallback: string) {
   if (m && typeof m === "object" && typeof m.message === "string") return m.message;
   if (Array.isArray(m)) return m.join(" · ");
   return err?.message || fallback;
-}
-
-function Sheet({
-  open,
-  onClose,
-  title,
-  subtitle,
-  onBack,
-  children,
-  footer,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  subtitle?: string;
-  onBack?: () => void;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}) {
-  const { isFa } = useStorefrontLocale();
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
-  const BackIcon = isFa ? ChevronRight : ChevronLeft;
-  if (typeof document === "undefined") return null;
-  const host = (document.querySelector(".store-shell") as HTMLElement | null) || document.body;
-  return createPortal(
-    <AnimatePresence>
-      {open ? (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-6" dir={isFa ? "rtl" : "ltr"}>
-          <motion.button
-            type="button"
-            aria-label="Close"
-            className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            initial={{ y: 40, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 40, opacity: 0 }}
-            transition={{ type: "spring", damping: 30, stiffness: 320 }}
-            className="store-card relative z-10 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border shadow-2xl sm:max-w-lg sm:rounded-[1.75rem]"
-          >
-            <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700 sm:hidden" />
-            <div className="flex shrink-0 items-center gap-2 border-b border-black/[0.05] px-4 py-3 dark:border-white/[0.06] sm:px-5">
-              {onBack ? (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label="Back"
-                  className={`flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-zinc-500 transition-colors duration-200 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${focusRing}`}
-                >
-                  <BackIcon size={20} />
-                </button>
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-bold text-zinc-900 dark:text-zinc-50">{title}</div>
-                {subtitle ? <div className="truncate text-xs text-zinc-500">{subtitle}</div> : null}
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close"
-                className={`flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-zinc-500 transition-colors duration-200 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${focusRing}`}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
-            {footer ? (
-              <div className="shrink-0 border-t border-black/[0.05] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-white/[0.06] sm:px-5">
-                {footer}
-              </div>
-            ) : null}
-          </motion.div>
-        </div>
-      ) : null}
-    </AnimatePresence>,
-    host,
-  );
-}
-
-function PickRow({
-  title,
-  hint,
-  meta,
-  icon,
-  selected,
-  onClick,
-}: {
-  title: string;
-  hint?: string | null;
-  meta?: React.ReactNode;
-  icon?: React.ReactNode;
-  selected?: boolean;
-  onClick: () => void;
-}) {
-  const { isFa } = useStorefrontLocale();
-  const Chevron = isFa ? ChevronLeft : ChevronRight;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`store-card group flex min-h-[60px] w-full cursor-pointer items-center gap-3 rounded-2xl border px-3.5 py-3 text-start transition-all duration-200 hover:-translate-y-px ${focusRing} ${
-        selected ? "shadow-[0_8px_24px_-16px_var(--store-primary)]" : ""
-      }`}
-    >
-      {icon ? (
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--store-primary)]/10 text-[color:var(--store-primary)]">
-          {icon}
-        </span>
-      ) : null}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">{title}</span>
-        {hint ? <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">{hint}</span> : null}
-      </span>
-      {meta ? <span className="shrink-0 text-end text-xs font-semibold text-zinc-700 dark:text-zinc-200">{meta}</span> : null}
-      {selected ? (
-        <Check size={18} className="shrink-0 text-[color:var(--store-primary)]" />
-      ) : (
-        <Chevron
-          size={18}
-          className="shrink-0 text-zinc-300 transition-transform duration-200 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 dark:text-zinc-600"
-        />
-      )}
-    </button>
-  );
-}
-
-function Stepper({ step, labels }: { step: number; labels: string[] }) {
-  return (
-    <ol className="mb-4 flex items-center gap-1.5" aria-label="Progress">
-      {labels.map((label, i) => (
-        <li key={label} className="flex min-w-0 flex-1 flex-col gap-1">
-          <span
-            className={`h-1 rounded-full transition-colors duration-300 ${
-              i <= step ? "bg-[color:var(--store-primary)]" : "bg-zinc-200 dark:bg-zinc-800"
-            }`}
-          />
-          <span
-            className={`truncate text-[10.5px] font-semibold ${
-              i === step ? "text-[color:var(--store-primary)]" : "text-zinc-400"
-            }`}
-          >
-            {label}
-          </span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-  loading,
-  tone = "primary",
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  tone?: "primary" | "neutral";
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`flex min-h-[48px] w-full cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-[15px] font-bold transition-all duration-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
-        tone === "primary"
-          ? "bg-[color:var(--store-primary)] text-white shadow-[0_12px_28px_-14px_var(--store-primary)] hover:brightness-110"
-          : "border border-black/[0.08] bg-white text-zinc-800 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-      }`}
-    >
-      {loading ? <LoaderCircle size={18} className="animate-spin" /> : null}
-      {children}
-    </button>
-  );
 }
 
 export function PaygBuySheet({
@@ -1376,15 +1185,11 @@ export function PaygSubRow({
                     <button
                       type="button"
                       disabled={cancelBusy}
-                      onClick={() => {
-                        if (window.confirm(t("درخواست لغو این سرویس ثبت شود؟", "Submit a cancel request for this service?"))) {
-                          onRequestCancel?.();
-                        }
-                      }}
+                      onClick={() => onRequestCancel?.()}
                       className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-rose-500/25 text-xs font-bold text-rose-600 transition-colors duration-200 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/30 ${focusRing}`}
                     >
                       <X size={16} />
-                      {t("درخواست لغو", "Request cancel")}
+                      {t("لغو و بازگشت وجه", "Cancel & refund")}
                     </button>
                   )
                 ) : null}

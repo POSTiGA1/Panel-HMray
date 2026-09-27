@@ -15,6 +15,7 @@ import {
   Plus,
   Shield,
   ShoppingBag,
+  XCircle,
   Zap,
 } from "lucide-react";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -59,6 +60,12 @@ import {
   type PaygCatalog,
 } from "@/modules/storefront/PortalPayg";
 import { DigitalOrdersList } from "@/modules/storefront/PortalDigital";
+import {
+  CancelRefundSheet,
+  CancelRequestsList,
+  ConfirmSheet,
+  type CancelTarget,
+} from "@/modules/storefront/PortalServiceActions";
 import {
   detectTelegramUserId,
   isReceiptPayMethod,
@@ -128,6 +135,9 @@ function CustomerDashboardInner() {
   const [paygTopUpOpen, setPaygTopUpOpen] = useState(false);
   const [paygTopUpAmount, setPaygTopUpAmount] = useState<number | undefined>(undefined);
   const [paygJustActivated, setPaygJustActivated] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  const [hideTarget, setHideTarget] = useState<CustomerService | null>(null);
+  const [orderCancelTarget, setOrderCancelTarget] = useState<CustomerOrder | null>(null);
 
   const unreadCount = useMemo(
     () => (data?.notifications ?? []).filter((item) => !item.isRead).length,
@@ -170,6 +180,15 @@ function CustomerDashboardInner() {
     }
     return set;
   }, [cancelRequestsQuery.data]);
+
+  const resolveCancelTitle = (row: CustomerCancelRequest) => {
+    if (row.targetType === "payg_sub") {
+      const sub = payg?.subscriptions?.find((s) => s.id === row.paygSubscriptionId);
+      return sub?.planName || sub?.clientEmail || "PAYG";
+    }
+    const svc = (data?.services || []).find((s) => s.id === row.clientId);
+    return svc?.remark || svc?.productName || svc?.email || t("سرویس", "Service");
+  };
 
   const walletQuery = useQuery({
     queryKey: ["customer-wallet", data?.profile?.id],
@@ -565,6 +584,7 @@ function CustomerDashboardInner() {
                       setPaygTopUpAmount(undefined);
                       setPaygTopUpOpen(true);
                     }}
+                    onAskCancel={setCancelTarget}
                   />
                 }
                 data={data}
@@ -584,10 +604,18 @@ function CustomerDashboardInner() {
                 walletLoading={walletQuery.isLoading}
                 settlements={settlementsQuery.data}
                 requestSettlement={requestSettlement}
+                onAskCancel={setCancelTarget}
+                onAskHide={setHideTarget}
               />
             ) : null}
             {tab === "orders" ? (
-              <OrdersTab data={data} cancelOrder={cancelOrder} onBuy={startBuy} />
+              <OrdersTab
+                data={data}
+                onAskCancelOrder={setOrderCancelTarget}
+                onBuy={startBuy}
+                cancelRequests={cancelRequestsQuery.data || []}
+                resolveCancelTitle={resolveCancelTitle}
+              />
             ) : null}
             {tab === "alerts" ? (
               <AlertsTab
@@ -606,8 +634,8 @@ function CustomerDashboardInner() {
         onChange={(id) => setTab(id as DashTab)}
       />
 
-      {flow !== "idle" ? (
-        <CheckoutSheet
+      <CheckoutSheet
+          open={flow !== "idle"}
           mode={flow}
           step={sheetStep}
           setStep={setSheetStep}
@@ -642,7 +670,6 @@ function CustomerDashboardInner() {
           kindOptions={flow === "buy" ? kindOptions : []}
           onPickPayg={openPaygBuy}
         />
-      ) : null}
 
       <PaygBuySheet
         open={paygBuyOpen}
@@ -664,6 +691,38 @@ function CustomerDashboardInner() {
         onClose={() => setPaygTopUpOpen(false)}
         payment={data.store?.payment}
         suggestedAmount={paygTopUpAmount}
+      />
+
+      <CancelRefundSheet target={cancelTarget} onClose={() => setCancelTarget(null)} requestCancel={requestCancel} />
+      <ConfirmSheet
+        open={!!hideTarget}
+        onClose={() => setHideTarget(null)}
+        title={t("حذف از لیست سرویس‌ها", "Remove from your list")}
+        description={t(
+          "این سرویس فقط از لیست شما پنهان می‌شود و خود سرویس حذف یا غیرفعال نمی‌شود. برای لغو و بازگشت وجه از دکمه «لغو و بازگشت وجه» استفاده کنید.",
+          "The service is only hidden from your list — it is not deleted or disabled. To cancel and get a refund, use “Cancel & refund”.",
+        )}
+        confirmLabel={t("حذف از لیست", "Remove")}
+        loading={hideService.isPending}
+        onConfirm={() => {
+          if (!hideTarget) return;
+          hideService.mutate(hideTarget.id, { onSettled: () => setHideTarget(null) });
+        }}
+      />
+      <ConfirmSheet
+        open={!!orderCancelTarget}
+        onClose={() => setOrderCancelTarget(null)}
+        title={t("لغو سفارش", "Cancel order")}
+        description={t(
+          `سفارش «${orderCancelTarget?.productName || ""}» لغو شود؟ اگر مبلغی واریز کرده‌اید، برای پیگیری عودت با پشتیبانی در تماس باشید.`,
+          `Cancel the order “${orderCancelTarget?.productName || ""}”? If you already paid, contact support about the refund.`,
+        )}
+        confirmLabel={t("لغو سفارش", "Cancel order")}
+        loading={cancelOrder.isPending}
+        onConfirm={() => {
+          if (!orderCancelTarget) return;
+          cancelOrder.mutate(orderCancelTarget.id, { onSettled: () => setOrderCancelTarget(null) });
+        }}
       />
 
       {categoryPickService ? (
@@ -743,7 +802,9 @@ function PaygTab({
   justActivated,
   onBuy,
   onTopUp,
+  onAskCancel,
 }: {
+  onAskCancel?: (target: CancelTarget) => void;
   payg?: CustomerPaygOverview;
   loading: boolean;
   catalog?: PaygCatalog;
@@ -830,7 +891,9 @@ function PaygTab({
                 cancelRefundEnabled={cancelRefundEnabled && s.status === "ACTIVE"}
                 cancelPending={pendingCancelClientIds?.has(s.id)}
                 cancelBusy={requestCancel?.isPending}
-                onRequestCancel={() => requestCancel?.mutate({ id: s.id, targetType: "payg_sub" })}
+                onRequestCancel={() =>
+                  onAskCancel?.({ id: s.id, targetType: "payg_sub", title: s.planName || s.clientEmail || "PAYG" })
+                }
               />
             ))}
           </div>
@@ -1113,7 +1176,11 @@ function HomeTab({
   walletLoading,
   settlements,
   requestSettlement,
+  onAskCancel,
+  onAskHide,
 }: {
+  onAskCancel?: (target: CancelTarget) => void;
+  onAskHide?: (service: CustomerService) => void;
   segments: SegmentItem[];
   segment: HomeSegment;
   onSegmentChange: (id: HomeSegment) => void;
@@ -1385,34 +1452,23 @@ function HomeTab({
                     if (link) window.open(link, "_blank", "noopener,noreferrer");
                   }}
                   onRenew={() => onRenew(service)}
-                  onHide={() => {
-                    if (
-                      window.confirm(
-                        t(
-                          "فقط از لیست شما حذف می‌شود؛ خود سرویس حذف نمی‌شود.",
-                          "Removed from your list only — the service itself is not deleted.",
-                        ),
-                      )
-                    ) {
-                      hideService.mutate(service.id);
-                    }
-                  }}
+                  onHide={() => onAskHide?.(service)}
                   hiding={hideService.isPending}
-                  canCancel={cancelRefundEnabled && service.status === "active"}
+                  canCancel={
+                    !!cancelRefundEnabled &&
+                    service.status !== "expired" &&
+                    service.status !== "disabled" &&
+                    !String(service.id).includes(":")
+                  }
                   cancelPending={pendingCancelClientIds?.has(service.id)}
                   cancelSubmitting={requestCancel?.isPending}
-                  onRequestCancel={() => {
-                    if (
-                      window.confirm(
-                        t(
-                          "درخواست لغو این سرویس ثبت شود؟",
-                          "Submit a cancel request for this service?",
-                        ),
-                      )
-                    ) {
-                      requestCancel?.mutate({ id: service.id, targetType: "vpn_client" });
-                    }
-                  }}
+                  onRequestCancel={() =>
+                    onAskCancel?.({
+                      id: service.id,
+                      targetType: "vpn_client",
+                      title: service.remark || service.productName || service.email,
+                    })
+                  }
                 />
               </motion.div>
             );
@@ -1441,12 +1497,16 @@ const PROVIDER_TONE: Record<(typeof PROVIDER_GROUPS)[number]["id"], string> = {
 
 function OrdersTab({
   data,
-  cancelOrder,
+  onAskCancelOrder,
   onBuy,
+  cancelRequests,
+  resolveCancelTitle,
 }: {
   data: CustomerDashboard;
-  cancelOrder: ReturnType<typeof useCustomerSession>["cancelOrder"];
+  onAskCancelOrder: (order: CustomerOrder) => void;
   onBuy: () => void;
+  cancelRequests: CustomerCancelRequest[];
+  resolveCancelTitle: (row: CustomerCancelRequest) => string;
 }) {
   const { t, isFa } = useStorefrontLocale();
   const orders = data.orders || [];
@@ -1513,9 +1573,10 @@ function OrdersTab({
             {["PENDING_PAYMENT", "PAYMENT_SUBMITTED", "UNDER_REVIEW"].includes(order.status) ? (
               <button
                 type="button"
-                className="mt-3 text-xs font-semibold text-rose-500"
-                onClick={() => cancelOrder.mutate(order.id)}
+                className="store-focus-ring mt-3 inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] px-3 text-xs font-bold text-rose-600 transition-colors duration-200 hover:bg-rose-500/[0.12] dark:text-rose-400"
+                onClick={() => onAskCancelOrder(order)}
               >
+                <XCircle size={14} aria-hidden />
                 {t("لغو سفارش", "Cancel order")}
               </button>
             ) : null}
@@ -1527,6 +1588,7 @@ function OrdersTab({
           </div>
         ) : null}
       </div>
+      <CancelRequestsList rows={cancelRequests} resolveTitle={resolveCancelTitle} />
     </div>
   );
 }
