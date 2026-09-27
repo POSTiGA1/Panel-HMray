@@ -308,10 +308,10 @@ function LumenHero({
   return (
     <motion.section {...(reduce ? {} : fadeUp)} transition={fadeUpTransition} className="store-enter py-2 sm:py-6">
       <div className="mx-auto max-w-3xl text-center">
-        <h1 className="text-[1.65rem] font-bold tracking-tight text-slate-900 sm:text-[2.15rem] [font-family:var(--store-display,inherit)]">
+        <h1 className="text-[1.65rem] font-bold tracking-tight text-slate-900 dark:text-zinc-50 sm:text-[2.15rem] [font-family:var(--store-display,inherit)]">
           {copy.headline}
         </h1>
-        <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-slate-500">{copy.subhead}</p>
+        <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-slate-500 dark:text-zinc-400">{copy.subhead}</p>
       </div>
       <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {cards.map((card) => {
@@ -328,21 +328,23 @@ function LumenHero({
               className={`store-focus-ring relative min-h-[7.5rem] cursor-pointer rounded-2xl border p-4 text-start transition duration-200 ${
                 selected
                   ? "border-[color:var(--store-primary)] ring-2 ring-[color:var(--store-primary)]/20"
-                  : "border-slate-200 hover:border-slate-300"
+                  : "border-slate-200 hover:border-slate-300 dark:border-white/10 dark:hover:border-white/20"
               }`}
             >
               <span
                 className={`absolute end-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border ${
-                  selected ? "border-transparent bg-[color:var(--store-primary)] text-white" : "border-slate-300 bg-white"
+                  selected
+                    ? "border-transparent bg-[color:var(--store-primary)] text-white"
+                    : "border-slate-300 bg-white dark:border-white/20 dark:bg-zinc-900"
                 }`}
               >
                 {selected ? <Check size={14} strokeWidth={3} /> : null}
               </span>
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600 dark:bg-white/10 dark:text-zinc-300">
                 {card.icon ? <span className="text-lg">{card.icon}</span> : <Icon size={18} />}
               </span>
-              <div className="mt-3 pr-8 text-[15px] font-bold text-slate-900">{card.title}</div>
-              <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-slate-500">{card.body}</p>
+              <div className="mt-3 pr-8 text-[15px] font-bold text-slate-900 dark:text-zinc-50">{card.title}</div>
+              <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-slate-500 dark:text-zinc-400">{card.body}</p>
             </button>
           );
         })}
@@ -351,7 +353,7 @@ function LumenHero({
         <PrimaryButton onClick={onBuy}>{copy.ctaPrimary}</PrimaryButton>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-4">
-        <button type="button" onClick={onLogin} className="store-focus-ring min-h-11 cursor-pointer text-[14px] font-semibold text-slate-600">
+        <button type="button" onClick={onLogin} className="store-focus-ring min-h-11 cursor-pointer text-[14px] font-semibold text-slate-600 dark:text-zinc-300">
           {copy.ctaSecondary}
         </button>
         {onTrack ? (

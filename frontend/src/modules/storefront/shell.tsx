@@ -16,6 +16,7 @@ import {
   resolveStorefrontSkin,
   sanitizeThemeCss,
   skinChrome,
+  skinDarkStyle,
   SKIN_FONT_HREF,
   type StorefrontLayoutId,
   type StorefrontSkinId,
@@ -77,7 +78,7 @@ function StoreShellInner({
   children: React.ReactNode;
 }) {
   const { isFa } = useStorefrontLocale();
-  useStorefrontTheme();
+  const { isDark } = useStorefrontTheme();
   const copy = resolveStorefrontCopy(store?.publishedTheme?.settings, isFa);
   const logoLight = store?.logoUrl || store?.branding?.logo || null;
   const logoDark = store?.logoDarkUrl || store?.branding?.logoDark || null;
@@ -123,6 +124,7 @@ function StoreShellInner({
     ["--store-primary" as string]: primaryColor,
     ["--store-accent" as string]: accentColor,
     ...chrome.style,
+    ...(isDark && !chrome.forceDark ? skinDarkStyle(skin) : {}),
     ...extraVars,
     fontFamily:
       chrome.style["--store-font"] ||
@@ -189,7 +191,7 @@ function StoreShellInner({
     layout === "market"
       ? "mx-auto flex max-w-xl items-center gap-3 border-b border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)] px-4 py-2.5 sm:max-w-lg lg:max-w-xl"
       : layout === "funnel"
-        ? "mx-auto flex max-w-3xl items-center gap-3 rounded-[1.1rem] border border-white/60 bg-white/90 px-4 py-2.5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur-xl"
+        ? "mx-auto flex max-w-3xl items-center gap-3 rounded-[1.1rem] border border-white/60 bg-white/90 px-4 py-2.5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur-xl dark:border-white/15 dark:bg-zinc-950/85"
         : `mx-auto flex max-w-5xl items-center gap-3 px-3 py-2.5 backdrop-blur-2xl lg:px-4 ${
             skin === "atelier"
               ? "rounded-[var(--store-radius)] border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]/90 shadow-[0_10px_36px_-22px_rgba(15,23,42,0.35)]"
@@ -324,20 +326,20 @@ function LumenContactColumn({
           href={link.href}
           target="_blank"
           rel="noreferrer"
-          className="store-focus-ring group flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-1 text-start transition duration-200 hover:bg-slate-50"
+          className="store-focus-ring group flex cursor-pointer items-start gap-3 rounded-xl p-1 text-start transition duration-200 hover:bg-slate-50 dark:hover:bg-white/5"
         >
-          <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500">
+          <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-white/15 dark:text-zinc-400">
             <link.icon size={16} />
           </span>
-          <span className="min-w-0">
-            <span className="block text-[13px] font-semibold text-slate-900">
+          <span>
+            <span className="block text-[13px] font-semibold text-slate-900 dark:text-zinc-100">
               {link.kind === "telegram" || link.kind === "whatsapp"
                 ? copy.chatLabel
                 : link.kind === "website"
                   ? copy.officeLabel
                   : copy.phoneLabel}
             </span>
-            <span className="mt-0.5 block min-w-0 break-all text-[13px] text-slate-500 underline-offset-2 group-hover:underline [overflow-wrap:anywhere]">
+            <span className="mt-0.5 block text-[13px] text-slate-500 dark:text-zinc-400 underline-offset-2 group-hover:underline">
               {link.label}
             </span>
           </span>

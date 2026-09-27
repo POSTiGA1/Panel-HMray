@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { publicApi, setCustomerSessionToken } from "@/lib/api";
 import type { CustomerDashboard } from "../types";
+import { optimisticNotificationRead } from "../session";
 import { useTelegramWebApp } from "./useTelegramWebApp";
 
 export function useTelegramSession(slug: string) {
@@ -53,32 +54,38 @@ export function useTelegramSession(slug: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, slug, initData, waitTicks, webApp]);
 
-  const markNotificationRead = useMutation({
-    mutationFn: async (notificationId: string) =>
-      (await publicApi.post(`/store/customer/notifications/${notificationId}/read`)).data,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-session", "tma", slug] });
-    },
-  });
-
-  const markAllNotificationsRead = useMutation({
-    mutationFn: async () =>
-      (await publicApi.post("/store/customer/notifications/read-all")).data,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-session", "tma", slug] });
-    },
-  });
+  const notifRead = optimisticNotificationRead(queryClient, ["customer-session", "tma", slug]);
+  const markNotificationRead = useMutation(notifRead.single);
+  const markAllNotificationsRead = useMutation(notifRead.all);
 
   const claimService = useMutation({
-    mutationFn: async (subscriptionLink: string) =>
+    mutationFn: async (input: { subscriptionLink: string; categoryId: string }) =>
       (
         await publicApi.post("/store/customer/services/claim", {
-          subscriptionLink,
+          subscriptionLink: input.subscriptionLink,
+          categoryId: input.categoryId,
         })
       ).data as { service: CustomerDashboard["services"][0]; dashboard: CustomerDashboard },
     onSuccess: async (data) => {
       queryClient.setQueryData(["customer-session", "tma", slug], data.dashboard);
       await queryClient.invalidateQueries({ queryKey: ["customer-session"] });
+      haptic("success");
+    },
+  });
+
+  const assignServiceCategory = useMutation({
+    mutationFn: async (input: { clientId: string; categoryId: string }) =>
+      (
+        await publicApi.post(
+          `/store/customer/services/${encodeURIComponent(input.clientId)}/category`,
+          { categoryId: input.categoryId },
+        )
+      ).data as CustomerDashboard,
+    onSuccess: async (dashboard) => {
+      if (dashboard?.token) {
+        queryClient.setQueryData(["customer-session", "tma", slug], dashboard);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["customer-session", "tma", slug] });
       haptic("success");
     },
   });
@@ -113,6 +120,7 @@ export function useTelegramSession(slug: string) {
     markNotificationRead,
     markAllNotificationsRead,
     claimService,
+    assignServiceCategory,
     cancelOrder,
     user,
     haptic,

@@ -13,6 +13,9 @@ export type StorefrontProduct = {
   featured?: boolean;
   sortOrder?: number;
   renewable?: boolean;
+  kind?: "VPN" | "DIGITAL" | "PAYG";
+  digitalDeliveryHint?: "auto" | "operator";
+  digitalOrderMessage?: string | null;
   /** Fulfillment provider — used to keep Eylan renewals on Eylan plans. */
   providerId?: string | null;
   /** Product base concurrent users (before optional IP add-ons). */
@@ -67,6 +70,15 @@ export type StorefrontStore = {
       cardNumber?: string;
       cardHolder?: string;
       iban?: string;
+      instructions?: string;
+      enabled?: boolean;
+    }>;
+    wallets?: Array<{
+      id?: string;
+      title?: string;
+      asset?: string;
+      network?: string;
+      address?: string;
       instructions?: string;
       enabled?: boolean;
     }>;
@@ -146,6 +158,10 @@ export type CustomerOrder = {
   configName?: string | null;
   categoryId: string;
   createdAt: string;
+  kind?: "VPN" | "DIGITAL";
+  digitalPendingManual?: boolean;
+  digitalCodeMasked?: string | null;
+  digitalDeliveryHint?: "auto" | "operator" | null;
   timeline?: Array<{
     id?: string;
     status: string;
@@ -153,6 +169,34 @@ export type CustomerOrder = {
     createdAt: string;
   }>;
 };
+
+export type CustomerCancelRequest = {
+  id: string;
+  targetType: "vpn_client" | "payg_sub";
+  clientId?: string | null;
+  paygSubscriptionId?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reason?: string | null;
+  refundAmount?: number | null;
+  refundCurrency?: string | null;
+  rejectReason?: string | null;
+  createdAt: string;
+};
+
+export type CustomerWalletSettlement = {
+  id: string;
+  amount: number;
+  currency: string;
+  cardNumber: string;
+  cardHolder?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  rejectReason?: string | null;
+  createdAt: string;
+};
+
+export type CustomerBuyKind = "vpn" | "digital" | "payg";
+
+export type CustomerBuyMenu = Record<CustomerBuyKind, { label: string | null; available: boolean }>;
 
 export type CustomerDashboard = {
   token: string;
@@ -166,6 +210,10 @@ export type CustomerDashboard = {
     defaultCurrency?: string;
     payment?: StorefrontStore["payment"] | null;
     publishedTheme?: StorefrontStore["publishedTheme"];
+    cancelRefundEnabled?: boolean;
+    walletSettlementEnabled?: boolean;
+    buyMenu?: CustomerBuyMenu;
+    telegramBotUsername?: string | null;
   };
   branding?: StorefrontStore["branding"];
   publishedTheme?: StorefrontStore["publishedTheme"];

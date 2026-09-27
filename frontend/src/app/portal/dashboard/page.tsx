@@ -1,18 +1,21 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
   Copy,
+  Gift,
   Link2,
   LoaderCircle,
   LogOut,
   Package,
   Plus,
+  Shield,
   ShoppingBag,
+  Zap,
 } from "lucide-react";
 import { copyToClipboard } from "@/lib/clipboard";
 import { publicApi } from "@/lib/api";
@@ -20,13 +23,16 @@ import { useCustomerSession } from "@/modules/storefront/session";
 import { buildSubscriptionLink, parseSubscriptionToken } from "@/modules/storefront/subscription";
 import { compressReceiptImage } from "@/modules/storefront/receipt-image";
 import type {
+  CustomerCancelRequest,
   CustomerDashboard,
+  CustomerOrder,
   CustomerService,
+  CustomerWalletSettlement,
   StorefrontCategory,
   StorefrontProduct,
   StorefrontStore,
 } from "@/modules/storefront/types";
-import { StoreShell, ServiceCard } from "@/modules/storefront/ui";
+import { StoreShell, ServiceListItem } from "@/modules/storefront/ui";
 import { scrollToTop } from "@/modules/storefront/scroll";
 import {
   MotionPage,
@@ -40,18 +46,31 @@ import {
 } from "@/modules/storefront/design";
 import { usePortalTelegramGate } from "@/modules/storefront/tma/usePortalTelegramGate";
 import { StorefrontLocaleProvider, useStorefrontLocale } from "@/modules/storefront/locale";
-import { CheckoutSheet } from "@/modules/storefront/PortalCheckoutSheet";
+import { CheckoutSheet, resolveBuyKindOptions } from "@/modules/storefront/PortalCheckoutSheet";
 import {
+  PaygBuySheet,
+  PaygHeroCard,
+  PaygSubRow,
+  PaygTopUpSheet,
+  TelegramConnectPanel,
+  usePaygCatalog,
+  usePaygMoney,
+  type CustomerPaygOverview,
+  type PaygCatalog,
+} from "@/modules/storefront/PortalPayg";
+import { DigitalOrdersList } from "@/modules/storefront/PortalDigital";
+import {
+  detectTelegramUserId,
   isReceiptPayMethod,
   openCheckoutPayUrl,
   pickStorefrontPayMethod,
-  detectTelegramUserId,
   type CheckoutPayMethod,
 } from "@/modules/storefront/payment-methods";
 import { rememberStoreSlug, portalPathForSlug, shopPathForSlug } from "@/modules/storefront/store-slug";
 
 type FlowMode = "idle" | "buy" | "renew";
 type DashTab = "home" | "orders" | "alerts";
+type HomeSegment = "vpn" | "digital" | "payg";
 
 function PortalTopBarLabel() {
   const { t } = useStorefrontLocale();
@@ -81,6 +100,8 @@ function CustomerDashboardInner() {
     claimService,
     assignServiceCategory,
     hideService,
+    requestCancel,
+    requestSettlement,
   } = useCustomerSession();
   const { t, isFa } = useStorefrontLocale();
 
@@ -102,26 +123,79 @@ function CustomerDashboardInner() {
   const [sheetStep, setSheetStep] = useState(0);
   const [copiedToken, setCopiedToken] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [segment, setSegment] = useState<HomeSegment>("vpn");
+  const [paygBuyOpen, setPaygBuyOpen] = useState(false);
+  const [paygTopUpOpen, setPaygTopUpOpen] = useState(false);
+  const [paygTopUpAmount, setPaygTopUpAmount] = useState<number | undefined>(undefined);
+  const [paygJustActivated, setPaygJustActivated] = useState(false);
 
   const unreadCount = useMemo(
     () => (data?.notifications ?? []).filter((item) => !item.isRead).length,
     [data?.notifications],
   );
 
+  const paygQuery = useQuery({
+    queryKey: ["customer-payg", data?.profile?.id],
+    enabled: !!data?.profile?.id,
+    queryFn: async () =>
+      (await publicApi.get("/store/customer/payg")).data as CustomerPaygOverview,
+    refetchInterval: 60_000,
+  });
+  const payg = paygQuery.data;
+  const paygCatalogQuery = usePaygCatalog(!!data?.profile?.id);
+  const paygPlansAvailable = payg?.enabled !== false && (paygCatalogQuery.data?.plans?.length ?? 0) > 0;
+  const showPaygSegment = !!(
+    payg?.hasActive ||
+    (payg?.subscriptions?.length ?? 0) > 0 ||
+    paygPlansAvailable ||
+    data?.store?.buyMenu?.payg?.available
+  );
+  const telegramLinked = gate.inTelegram || !!data?.profile?.telegramUserId;
+
+  const cancelRefundEnabled = !!data?.store?.cancelRefundEnabled;
+  const walletSettlementEnabled = !!data?.store?.walletSettlementEnabled;
+
+  const cancelRequestsQuery = useQuery({
+    queryKey: ["customer-cancel-requests", data?.profile?.id],
+    enabled: !!data?.profile?.id && cancelRefundEnabled,
+    queryFn: async () =>
+      (await publicApi.get("/store/customer/cancel-requests")).data as CustomerCancelRequest[],
+  });
+  const pendingCancelClientIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of cancelRequestsQuery.data || []) {
+      if (row.status !== "PENDING") continue;
+      if (row.clientId) set.add(row.clientId);
+      if (row.paygSubscriptionId) set.add(row.paygSubscriptionId);
+    }
+    return set;
+  }, [cancelRequestsQuery.data]);
+
+  const walletQuery = useQuery({
+    queryKey: ["customer-wallet", data?.profile?.id],
+    enabled: !!data?.profile?.id && walletSettlementEnabled,
+    queryFn: async () =>
+      (await publicApi.get("/store/customer/wallet")).data as {
+        balance: number;
+        currency: string;
+      },
+  });
+  const settlementsQuery = useQuery({
+    queryKey: ["customer-wallet-settlements", data?.profile?.id],
+    enabled: !!data?.profile?.id && walletSettlementEnabled,
+    queryFn: async () =>
+      (await publicApi.get("/store/customer/wallet/settlements")).data as CustomerWalletSettlement[],
+  });
+
+  const tgUserId = data?.profile?.telegramUserId || detectTelegramUserId() || undefined;
+
   useEffect(() => {
     const payment = data?.store?.payment;
     if (!payment) return;
     setPaymentMethod((current) =>
-      pickStorefrontPayMethod(
-        payment,
-        {
-          hasWalletSession: true,
-          hasTelegramUserId: !!(data?.profile?.telegramUserId || detectTelegramUserId()),
-        },
-        current,
-      ),
+      pickStorefrontPayMethod(payment, { hasWalletSession: true, hasTelegramUserId: !!tgUserId }, current),
     );
-  }, [data?.store?.payment, data?.profile?.telegramUserId]);
+  }, [data?.store?.payment, tgUserId]);
 
   const renewMutation = useMutation({
     mutationFn: async () => {
@@ -135,8 +209,8 @@ function CustomerDashboardInner() {
           selectedAddonIds,
           couponCode: couponCode || undefined,
           paymentMethod,
-          telegramUserId: data?.profile?.telegramUserId || detectTelegramUserId() || undefined,
-          telegramChatId: data?.profile?.telegramUserId || detectTelegramUserId() || undefined,
+          telegramUserId: tgUserId,
+          telegramChatId: tgUserId,
         })
       ).data;
     },
@@ -153,18 +227,20 @@ function CustomerDashboardInner() {
 
   const orderMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedProduct || !configName.trim()) return null;
+      const isDigital = selectedProduct?.kind === "DIGITAL";
+      const name = configName.trim() || (isDigital ? String(selectedProduct?.name || "digital") : "");
+      if (!selectedProduct || !name) return null;
       return (
         await publicApi.post("/store/customer/order", {
           productId: selectedProduct.id,
-          configName: configName.trim(),
+          configName: name,
           receiptText: isReceiptPayMethod(paymentMethod) ? receiptText || undefined : undefined,
           receiptImage: isReceiptPayMethod(paymentMethod) ? receiptImage || undefined : undefined,
           selectedAddonIds,
           couponCode: couponCode || undefined,
           paymentMethod,
-          telegramUserId: data?.profile?.telegramUserId || detectTelegramUserId() || undefined,
-          telegramChatId: data?.profile?.telegramUserId || detectTelegramUserId() || undefined,
+          telegramUserId: tgUserId,
+          telegramChatId: tgUserId,
         })
       ).data;
     },
@@ -325,6 +401,46 @@ function CustomerDashboardInner() {
     }
   };
 
+  const digitalOrders = (data.orders || []).filter((o) => o.kind === "DIGITAL");
+  const hasKind = (kind: "VPN" | "DIGITAL") =>
+    products.some((p) => (kind === "DIGITAL" ? p.kind === "DIGITAL" : !p.kind || p.kind === "VPN"));
+  const kindOptions = resolveBuyKindOptions(
+    data.store?.buyMenu,
+    { vpn: hasKind("VPN"), digital: hasKind("DIGITAL"), payg: paygPlansAvailable },
+    t,
+  );
+
+  const segments: Array<{ id: HomeSegment; label: string; icon: typeof Shield; count: number }> = [
+    { id: "vpn", label: t("وی‌پی‌ان", "VPN"), icon: Shield, count: (data.services || []).length },
+    ...(digitalOrders.length || data.store?.buyMenu?.digital?.available
+      ? [{ id: "digital" as const, label: t("دیجیتال", "Digital"), icon: Gift, count: digitalOrders.length }]
+      : []),
+    ...(showPaygSegment
+      ? [{ id: "payg" as const, label: t("پرداخت به‌ازای مصرف", "Pay as you go"), icon: Zap, count: payg?.subscriptions?.length ?? 0 }]
+      : []),
+  ];
+  const activeSegment: HomeSegment = segments.some((s) => s.id === segment) ? segment : "vpn";
+
+  const openPaygBuy = () => {
+    resetFlow();
+    setTab("home");
+    setSegment("payg");
+    setPaygJustActivated(false);
+    setPaygBuyOpen(true);
+  };
+
+  const startBuy = () => {
+    if (kindOptions.length === 1 && kindOptions[0].id === "payg") {
+      openPaygBuy();
+      return;
+    }
+    setFlow("buy");
+    setSheetStep(0);
+    setSelectedProduct(null);
+    setSelectedAddonIds([]);
+    setCouponCode("");
+  };
+
   const bottomTabs = [
     { id: "home", label: t("خانه", "Home"), icon: Package },
     { id: "orders", label: t("سفارش", "Orders"), icon: ShoppingBag },
@@ -365,7 +481,7 @@ function CustomerDashboardInner() {
         )
       }
     >
-      <MotionPage className={isFa ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""}>
+      <MotionPage className={`mx-auto w-full max-w-3xl ${isFa ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""}`}>
         {tab === "home" ? (
           <section className="mb-5 sm:mb-7">
             <div className="flex items-start justify-between gap-3">
@@ -392,13 +508,7 @@ function CustomerDashboardInner() {
               <StatTile label={t("سفارش در صف", "Orders in queue")} value={pendingCount} tone="warn" />
               <button
                 type="button"
-                onClick={() => {
-                  setFlow("buy");
-                  setSheetStep(0);
-                  setSelectedProduct(null);
-                  setSelectedAddonIds([]);
-                  setCouponCode("");
-                }}
+                onClick={startBuy}
                 className="col-span-2 flex min-h-[72px] cursor-pointer items-center justify-center gap-2 rounded-[1.35rem] bg-[color:var(--store-primary)] px-4 text-[15px] font-bold text-white shadow-[0_14px_32px_-16px_var(--store-primary)] transition active:scale-[0.98] sm:col-span-2"
               >
                 <Plus size={18} /> {t("سفارش جدید", "New order")}
@@ -436,6 +546,27 @@ function CustomerDashboardInner() {
           >
             {tab === "home" ? (
               <HomeTab
+                segments={segments}
+                segment={activeSegment}
+                onSegmentChange={setSegment}
+                digitalOrders={digitalOrders}
+                paygContent={
+                  <PaygTab
+                    payg={payg}
+                    loading={paygQuery.isLoading}
+                    catalog={paygCatalogQuery.data}
+                    cancelRefundEnabled={cancelRefundEnabled}
+                    pendingCancelClientIds={pendingCancelClientIds}
+                    requestCancel={requestCancel}
+                    telegramLinked={telegramLinked}
+                    justActivated={paygJustActivated}
+                    onBuy={openPaygBuy}
+                    onTopUp={() => {
+                      setPaygTopUpAmount(undefined);
+                      setPaygTopUpOpen(true);
+                    }}
+                  />
+                }
                 data={data}
                 showToken={showToken}
                 setShowToken={setShowToken}
@@ -445,20 +576,18 @@ function CustomerDashboardInner() {
                 hideService={hideService}
                 categories={categories}
                 onRenew={startRenew}
+                cancelRefundEnabled={cancelRefundEnabled}
+                pendingCancelClientIds={pendingCancelClientIds}
+                requestCancel={requestCancel}
+                walletSettlementEnabled={walletSettlementEnabled}
+                wallet={walletQuery.data}
+                walletLoading={walletQuery.isLoading}
+                settlements={settlementsQuery.data}
+                requestSettlement={requestSettlement}
               />
             ) : null}
             {tab === "orders" ? (
-              <OrdersTab
-                data={data}
-                cancelOrder={cancelOrder}
-                onBuy={() => {
-                  setFlow("buy");
-                  setSheetStep(0);
-                  setSelectedProduct(null);
-                  setSelectedAddonIds([]);
-                  setCouponCode("");
-                }}
-              />
+              <OrdersTab data={data} cancelOrder={cancelOrder} onBuy={startBuy} />
             ) : null}
             {tab === "alerts" ? (
               <AlertsTab
@@ -509,9 +638,33 @@ function CustomerDashboardInner() {
           storeSlug={data?.store?.slug}
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
-          hasTelegramUserId={!!(data?.profile?.telegramUserId || detectTelegramUserId())}
+          hasTelegramUserId={!!tgUserId}
+          kindOptions={flow === "buy" ? kindOptions : []}
+          onPickPayg={openPaygBuy}
         />
       ) : null}
+
+      <PaygBuySheet
+        open={paygBuyOpen}
+        onClose={() => setPaygBuyOpen(false)}
+        catalog={paygCatalogQuery.data}
+        telegramLinked={telegramLinked}
+        onActivated={() => {
+          setPaygBuyOpen(false);
+          setPaygJustActivated(true);
+        }}
+        onTopUp={(amount) => {
+          setPaygBuyOpen(false);
+          setPaygTopUpAmount(amount);
+          setPaygTopUpOpen(true);
+        }}
+      />
+      <PaygTopUpSheet
+        open={paygTopUpOpen}
+        onClose={() => setPaygTopUpOpen(false)}
+        payment={data.store?.payment}
+        suggestedAmount={paygTopUpAmount}
+      />
 
       {categoryPickService ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/45 sm:items-center">
@@ -579,7 +732,370 @@ function CustomerDashboardInner() {
   );
 }
 
+function PaygTab({
+  payg,
+  loading,
+  catalog,
+  cancelRefundEnabled,
+  pendingCancelClientIds,
+  requestCancel,
+  telegramLinked,
+  justActivated,
+  onBuy,
+  onTopUp,
+}: {
+  payg?: CustomerPaygOverview;
+  loading: boolean;
+  catalog?: PaygCatalog;
+  cancelRefundEnabled?: boolean;
+  pendingCancelClientIds?: Set<string>;
+  requestCancel?: ReturnType<typeof useCustomerSession>["requestCancel"];
+  telegramLinked: boolean;
+  justActivated: boolean;
+  onBuy: () => void;
+  onTopUp: () => void;
+}) {
+  const { t } = useStorefrontLocale();
+
+  if (loading && !payg) {
+    return (
+      <div className="space-y-3">
+        <div className="h-44 animate-pulse rounded-[1.75rem] bg-zinc-100 dark:bg-zinc-800/70" />
+        <div className="h-16 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800/70" />
+        <div className="h-16 animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-800/70" />
+      </div>
+    );
+  }
+
+  const subs = payg?.subscriptions || [];
+  const canBuy = (catalog?.plans?.length ?? 0) > 0;
+  const minBalance = Number(catalog?.minWalletBalanceLowest ?? catalog?.minWalletBalance ?? payg?.minWalletBalance ?? 0);
+
+  return (
+    <div className="space-y-5">
+      {!telegramLinked ? <TelegramConnectPanel /> : null}
+
+      <PaygHeroCard payg={payg} canBuy={canBuy} onBuy={onBuy} onTopUp={onTopUp} />
+
+      {canBuy && minBalance > 0 ? (
+        <p className="-mt-2 text-center text-xs text-zinc-500">
+          {t("حداقل موجودی برای فعال‌سازی سرویس جدید", "Minimum balance to activate a new service")}:{" "}
+          <PaygMinBalance amount={minBalance} />
+        </p>
+      ) : null}
+
+      {justActivated ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+          <Zap size={16} />
+          {t("سرویس فعال شد. لینک اشتراک در کارت زیر است.", "Service activated. Your subscription link is below.")}
+        </div>
+      ) : null}
+
+      <section>
+        <SectionHeading
+          title={t("سرویس‌های PAYG", "PAYG services")}
+          subtitle={
+            subs.length
+              ? t("برای جزئیات، لینک و مصرف روی هر سرویس بزنید.", "Tap a service for link, usage and actions.")
+              : undefined
+          }
+        />
+        {!subs.length ? (
+          <EmptyState
+            title={t("سرویس PAYG فعالی ندارید", "No PAYG services yet")}
+            hint={
+              canBuy
+                ? t("یک پلن انتخاب کنید و فقط به‌اندازه مصرف پرداخت کنید.", "Pick a plan and pay only for what you use.")
+                : t("فعلاً پلنی برای خرید موجود نیست.", "No plans are available right now.")
+            }
+            action={
+              canBuy ? (
+                <button
+                  type="button"
+                  onClick={onBuy}
+                  className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-2xl bg-[color:var(--store-primary)] px-5 text-sm font-bold text-white transition-all duration-200 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--store-primary)] focus-visible:ring-offset-2"
+                >
+                  <Plus size={16} /> {t("خرید PAYG", "Buy PAYG")}
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-2.5">
+            {subs.map((s, i) => (
+              <PaygSubRow
+                key={s.id}
+                sub={s}
+                defaultOpen={justActivated && i === 0}
+                cancelRefundEnabled={cancelRefundEnabled && s.status === "ACTIVE"}
+                cancelPending={pendingCancelClientIds?.has(s.id)}
+                cancelBusy={requestCancel?.isPending}
+                onRequestCancel={() => requestCancel?.mutate({ id: s.id, targetType: "payg_sub" })}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PaygMinBalance({ amount }: { amount: number }) {
+  const money = usePaygMoney();
+  return <b className="text-zinc-700 dark:text-zinc-200">{money.format(amount)}</b>;
+}
+
+function WalletSettlementSurface({
+  wallet,
+  loading,
+  settlements,
+  requestSettlement,
+}: {
+  wallet?: { balance: number; currency: string };
+  loading?: boolean;
+  settlements?: CustomerWalletSettlement[];
+  requestSettlement?: ReturnType<typeof useCustomerSession>["requestSettlement"];
+}) {
+  const { t, isFa } = useStorefrontLocale();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardHolder, setCardHolder] = useState("");
+  const [formError, setFormError] = useState("");
+
+  const balance = Number(wallet?.balance || 0);
+  const hasPending = (settlements || []).some((s) => s.status === "PENDING");
+
+  const statusLabel = (status: string) =>
+    status === "APPROVED"
+      ? t("پرداخت شد", "Paid")
+      : status === "REJECTED"
+        ? t("رد شد", "Rejected")
+        : t("در انتظار بررسی", "Pending");
+
+  const submit = async () => {
+    setFormError("");
+    const n = Number(amount);
+    const card = cardNumber.replace(/\s+/g, "");
+    if (!(n > 0)) {
+      setFormError(t("مقدار نامعتبر است", "Invalid amount"));
+      return;
+    }
+    if (n > balance) {
+      setFormError(t("موجودی کافی نیست", "Insufficient balance"));
+      return;
+    }
+    if (card.length < 8) {
+      setFormError(t("شماره کارت نامعتبر است", "Invalid card number"));
+      return;
+    }
+    try {
+      await requestSettlement?.mutateAsync({ amount: n, cardNumber: card, cardHolder });
+      setAmount("");
+      setCardNumber("");
+      setCardHolder("");
+      setOpen(false);
+    } catch (err: any) {
+      setFormError(
+        err?.response?.data?.message || err?.message || t("ثبت درخواست ناموفق بود", "Request failed"),
+      );
+    }
+  };
+
+  return (
+    <Surface className="mb-5 sm:mb-7">
+      <SectionHeading
+        title={t("تسویه کیف پول", "Wallet settlement")}
+        subtitle={t(
+          "درخواست واریز موجودی کیف پول به کارت بانکی",
+          "Request a payout of your wallet balance to your bank card",
+        )}
+        action={
+          !hasPending ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-bold dark:border-zinc-700"
+            >
+              {open ? t("بستن", "Close") : t("درخواست تسویه", "Request payout")}
+            </button>
+          ) : null
+        }
+      />
+
+      <div className="mt-3 text-sm">
+        {loading ? (
+          <LoaderCircle size={16} className="animate-spin text-zinc-400" />
+        ) : (
+          <>
+            {t("موجودی", "Balance")}:{" "}
+            <span className="font-bold tabular-nums">
+              {balance.toLocaleString(isFa ? "fa-IR" : "en-US")}
+            </span>
+          </>
+        )}
+      </div>
+
+      {hasPending ? (
+        <p className="mt-3 text-xs font-medium text-amber-600 dark:text-amber-400">
+          {t(
+            "یک درخواست تسویه در انتظار بررسی دارید.",
+            "You already have a pending settlement request.",
+          )}
+        </p>
+      ) : null}
+
+      {open && !hasPending ? (
+        <div className="mt-4 space-y-3 rounded-2xl bg-zinc-50/80 p-4 dark:bg-zinc-950/40">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-zinc-500">
+              {t("مقدار", "Amount")}
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-[color:var(--store-primary)] dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-zinc-500">
+              {t("شماره کارت", "Card number")}
+            </label>
+            <input
+              value={cardNumber}
+              onChange={(e) => setCardNumber(e.target.value)}
+              dir="ltr"
+              placeholder="6037-XXXX-XXXX-XXXX"
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 font-mono text-sm outline-none focus:border-[color:var(--store-primary)] dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-zinc-500">
+              {t("نام صاحب کارت (اختیاری)", "Cardholder name (optional)")}
+            </label>
+            <input
+              value={cardHolder}
+              onChange={(e) => setCardHolder(e.target.value)}
+              className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-[color:var(--store-primary)] dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+          {formError ? <p className="text-xs text-red-500">{formError}</p> : null}
+          <button
+            type="button"
+            disabled={requestSettlement?.isPending}
+            onClick={() => void submit()}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[color:var(--store-primary)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+          >
+            {requestSettlement?.isPending ? <LoaderCircle size={14} className="animate-spin" /> : null}
+            {t("ثبت درخواست", "Submit request")}
+          </button>
+        </div>
+      ) : null}
+
+      {(settlements || []).length ? (
+        <div className="mt-4 space-y-2">
+          {(settlements || []).slice(0, 5).map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-950/40"
+            >
+              <span className="font-mono tabular-nums" dir="ltr">
+                {Number(s.amount).toLocaleString(isFa ? "fa-IR" : "en-US")} → •••• {s.cardNumber.slice(-4)}
+              </span>
+              <span
+                className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ${
+                  s.status === "APPROVED"
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : s.status === "REJECTED"
+                      ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                }`}
+              >
+                {statusLabel(s.status)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Surface>
+  );
+}
+
+type SegmentItem = { id: HomeSegment; label: string; icon: typeof Shield; count: number };
+
+const PROVIDER_GROUPS: Array<{ id: "eylan" | "pasarguard" | "panel_3xui"; label: string }> = [
+  { id: "panel_3xui", label: "3x-ui" },
+  { id: "pasarguard", label: "Pasarguard" },
+  { id: "eylan", label: "Eylan" },
+];
+
+function serviceProviderGroup(service: CustomerService): (typeof PROVIDER_GROUPS)[number]["id"] {
+  const id = String(service.id || "");
+  if (service.providerId === "eylan" || service.deliveryHint === "eylan_download" || id.startsWith("eylan:")) {
+    return "eylan";
+  }
+  if (service.providerId === "pasarguard" || id.startsWith("pasarguard:")) return "pasarguard";
+  return "panel_3xui";
+}
+
+function SegmentBar({
+  segments,
+  value,
+  onChange,
+}: {
+  segments: SegmentItem[];
+  value: HomeSegment;
+  onChange: (id: HomeSegment) => void;
+}) {
+  const { isFa } = useStorefrontLocale();
+  if (segments.length <= 1) return null;
+  return (
+    <div
+      role="tablist"
+      className="flex gap-1 rounded-[1.35rem] border border-black/[0.05] bg-white p-1.5 shadow-sm dark:border-white/[0.06] dark:bg-zinc-900"
+    >
+      {segments.map((s) => {
+        const Icon = s.icon;
+        const active = s.id === value;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(s.id)}
+            className={`store-focus-ring flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[1.1rem] px-2 text-[13px] font-semibold transition-colors duration-200 ${
+              active
+                ? "bg-[color:var(--store-primary)] text-white"
+                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            }`}
+          >
+            <Icon size={15} className="shrink-0" />
+            <span className="truncate">{s.label}</span>
+            {s.count > 0 ? (
+              <span
+                className={`shrink-0 rounded-full px-1.5 text-[10.5px] font-bold tabular-nums ${
+                  active ? "bg-white/25" : "bg-zinc-100 dark:bg-zinc-800"
+                }`}
+              >
+                {s.count.toLocaleString(isFa ? "fa-IR" : "en-US")}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function HomeTab({
+  segments,
+  segment,
+  onSegmentChange,
+  digitalOrders,
+  paygContent,
   data,
   showToken,
   setShowToken,
@@ -589,7 +1105,20 @@ function HomeTab({
   hideService,
   categories,
   onRenew,
+  cancelRefundEnabled,
+  pendingCancelClientIds,
+  requestCancel,
+  walletSettlementEnabled,
+  wallet,
+  walletLoading,
+  settlements,
+  requestSettlement,
 }: {
+  segments: SegmentItem[];
+  segment: HomeSegment;
+  onSegmentChange: (id: HomeSegment) => void;
+  digitalOrders: CustomerOrder[];
+  paygContent: React.ReactNode;
   data: CustomerDashboard;
   showToken: boolean;
   setShowToken: (v: boolean) => void;
@@ -599,9 +1128,21 @@ function HomeTab({
   hideService: ReturnType<typeof useCustomerSession>["hideService"];
   categories: StorefrontCategory[];
   onRenew: (service: CustomerService) => void;
+  cancelRefundEnabled?: boolean;
+  pendingCancelClientIds?: Set<string>;
+  requestCancel?: ReturnType<typeof useCustomerSession>["requestCancel"];
+  walletSettlementEnabled?: boolean;
+  wallet?: { balance: number; currency: string };
+  walletLoading?: boolean;
+  settlements?: CustomerWalletSettlement[];
+  requestSettlement?: ReturnType<typeof useCustomerSession>["requestSettlement"];
 }) {
   const { t, isFa } = useStorefrontLocale();
   const services = data.services || [];
+  const serviceGroups = PROVIDER_GROUPS.map((g) => ({
+    ...g,
+    items: services.filter((s) => serviceProviderGroup(s) === g.id),
+  })).filter((g) => g.items.length > 0);
   const [linkInput, setLinkInput] = useState("");
   const [linkCategoryId, setLinkCategoryId] = useState(categories[0]?.id || "");
   const [linkError, setLinkError] = useState("");
@@ -677,6 +1218,37 @@ function HomeTab({
         </div>
       </Surface>
 
+      {walletSettlementEnabled ? (
+        <WalletSettlementSurface
+          wallet={wallet}
+          loading={walletLoading}
+          settlements={settlements}
+          requestSettlement={requestSettlement}
+        />
+      ) : null}
+
+      <SegmentBar segments={segments} value={segment} onChange={onSegmentChange} />
+
+      {segment === "digital" ? (
+        <div>
+          <SectionHeading
+            title={t("محصولات دیجیتال", "Digital products")}
+            subtitle={t("کدها و محصولات تحویلی شما", "Your delivered codes and items")}
+          />
+          {digitalOrders.length ? (
+            <DigitalOrdersList orders={digitalOrders} />
+          ) : (
+            <EmptyState
+              title={t("هنوز محصول دیجیتالی نخریده‌اید.", "No digital products yet.")}
+              hint={t("از «سفارش جدید» یک محصول دیجیتال انتخاب کنید.", "Pick a digital product from “New order”.")}
+            />
+          )}
+        </div>
+      ) : null}
+
+      {segment === "payg" ? paygContent : null}
+
+      {segment === "vpn" ? (
       <div>
         <SectionHeading
           title={t("سرویس‌ها", "Services")}
@@ -772,8 +1344,22 @@ function HomeTab({
           </Surface>
         ) : null}
 
-        <motion.div className="grid gap-3 lg:grid-cols-2 lg:gap-4" variants={staggerContainer} initial="initial" animate="animate">
-          {services.map((service) => {
+        <div className="flex flex-col gap-5">
+        {serviceGroups.map((group) => (
+        <section key={group.id} aria-label={group.label}>
+          {serviceGroups.length > 1 ? (
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${PROVIDER_TONE[group.id]}`}>
+                {group.label}
+              </span>
+              <span className="text-[11px] text-zinc-400">
+                {group.items.length.toLocaleString(isFa ? "fa-IR" : "en-US")} {t("سرویس", "services")}
+              </span>
+              <span className="h-px flex-1 bg-black/[0.06] dark:bg-white/[0.08]" aria-hidden />
+            </div>
+          ) : null}
+        <motion.div className="flex flex-col gap-2.5 sm:gap-3" variants={staggerContainer} initial="initial" animate="animate">
+          {group.items.map((service, serviceIndex) => {
             const native = String(service.subUrl || "").trim();
             const isEylan =
               service.providerId === "eylan" ||
@@ -788,7 +1374,8 @@ function HomeTab({
                 : buildSubscriptionLink(service.subId, service.subToken, service.subUrl);
             return (
               <motion.div key={service.id} variants={staggerItem}>
-                <ServiceCard
+                <ServiceListItem
+                  defaultOpen={services.length === 1 && serviceIndex === 0}
                   service={service}
                   subLink={link}
                   onCopy={() => {
@@ -811,21 +1398,46 @@ function HomeTab({
                     }
                   }}
                   hiding={hideService.isPending}
+                  canCancel={cancelRefundEnabled && service.status === "active"}
+                  cancelPending={pendingCancelClientIds?.has(service.id)}
+                  cancelSubmitting={requestCancel?.isPending}
+                  onRequestCancel={() => {
+                    if (
+                      window.confirm(
+                        t(
+                          "درخواست لغو این سرویس ثبت شود؟",
+                          "Submit a cancel request for this service?",
+                        ),
+                      )
+                    ) {
+                      requestCancel?.mutate({ id: service.id, targetType: "vpn_client" });
+                    }
+                  }}
                 />
               </motion.div>
             );
           })}
+        </motion.div>
+        </section>
+        ))}
           {!services.length ? (
             <EmptyState
               title={t("هنوز سرویسی ندارید.", "No services yet.")}
               hint={t("با سفارش جدید اولین اشتراک خود را فعال کنید.", "Place a new order to activate your first service.")}
             />
           ) : null}
-        </motion.div>
+        </div>
       </div>
+      ) : null}
     </div>
   );
 }
+
+const PROVIDER_TONE: Record<(typeof PROVIDER_GROUPS)[number]["id"], string> = {
+  panel_3xui: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+  pasarguard: "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+  eylan: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+};
 
 function OrdersTab({
   data,
@@ -854,12 +1466,19 @@ function OrdersTab({
           </button>
         }
       />
-      <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+      <div className="flex flex-col gap-2.5 sm:gap-3">
         {orders.map((order) => (
           <Surface key={order.id}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="font-semibold">{order.productName}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate font-semibold">{order.productName}</span>
+                  {order.kind === "DIGITAL" ? (
+                    <span className="shrink-0 rounded-full bg-violet-500/12 px-1.5 py-px text-[10px] font-bold text-violet-700 dark:text-violet-300">
+                      {t("دیجیتال", "Digital")}
+                    </span>
+                  ) : null}
+                </div>
                 {order.configName ? (
                   <div className="mt-0.5 truncate font-mono text-xs text-zinc-600 dark:text-zinc-400" dir="ltr">
                     {order.isRenewal
@@ -869,7 +1488,7 @@ function OrdersTab({
                 ) : order.isRenewal ? (
                   <div className="mt-0.5 text-xs text-amber-600">{t("تمدید سرویس", "Service renewal")}</div>
                 ) : null}
-                <div className="mt-1 min-w-0 break-all text-xs text-zinc-500 [overflow-wrap:anywhere]">
+                <div className="mt-1 text-xs text-zinc-500">
                   {order.trackingCode} ·{" "}
                   {order.status === "PENDING_PAYMENT"
                     ? t("در انتظار پرداخت", "Pending payment")
@@ -903,7 +1522,7 @@ function OrdersTab({
           </Surface>
         ))}
         {!orders.length ? (
-          <div className="rounded-[1.5rem] border border-dashed border-zinc-300 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-700 lg:col-span-2">
+          <div className="rounded-[1.5rem] border border-dashed border-zinc-300 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-700">
             {t("سفارشی ثبت نشده.", "No orders yet.")}
           </div>
         ) : null}
@@ -921,54 +1540,125 @@ function AlertsTab({
   markNotificationRead: ReturnType<typeof useCustomerSession>["markNotificationRead"];
   markAllNotificationsRead: ReturnType<typeof useCustomerSession>["markAllNotificationsRead"];
 }) {
-  const { t } = useStorefrontLocale();
+  const { t, isFa } = useStorefrontLocale();
+  const [filter, setFilter] = useState<"all" | "unread">("all");
   const items = data.notifications || [];
+  const unread = items.filter((n) => !n.isRead).length;
+  const visible = filter === "unread" ? items.filter((n) => !n.isRead) : items;
+
+  const relTime = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const min = Math.round(diff / 60_000);
+    const rtf = new Intl.RelativeTimeFormat(isFa ? "fa" : "en", { numeric: "auto" });
+    if (min < 60) return rtf.format(-Math.max(0, min), "minute");
+    const hr = Math.round(min / 60);
+    if (hr < 24) return rtf.format(-hr, "hour");
+    return rtf.format(-Math.round(hr / 24), "day");
+  };
+
+  const tone = (type: string) => {
+    const k = String(type || "").toLowerCase();
+    if (/(reject|fail|expire|error|cancel)/.test(k)) return "bg-red-500/10 text-red-600 dark:text-red-400";
+    if (/(approve|active|deliver|success|paid|renew)/.test(k)) return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    if (/(wallet|payg|low|balance|remind)/.test(k)) return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    return "bg-[color:var(--store-primary)]/10 text-[color:var(--store-primary)]";
+  };
 
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-4 lg:space-y-5">
       <SectionHeading
         title={t("اعلان‌ها", "Alerts")}
         action={
-          items.some((n) => !n.isRead) ? (
+          unread > 0 ? (
             <button
               type="button"
               onClick={() => markAllNotificationsRead.mutate()}
-              className="text-xs font-semibold text-[color:var(--store-primary)]"
+              className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[color:var(--store-primary)] transition-colors duration-200 hover:bg-[color:var(--store-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--store-primary)]/40"
             >
               {t("خواندن همه", "Mark all read")}
             </button>
           ) : null
         }
       />
-      <div className="space-y-2.5 lg:space-y-3">
-        {items.map((n) => (
+
+      <div role="tablist" className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/60">
+        {(["all", "unread"] as const).map((f) => (
           <button
-            key={n.id}
+            key={f}
             type="button"
-            onClick={() => {
-              if (!n.isRead) markNotificationRead.mutate(n.id);
-            }}
-            className={`w-full rounded-[1.35rem] border p-4 text-start transition lg:p-5 ${
-              n.isRead
-                ? "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-                : "border-[color:var(--store-primary)]/30 bg-[color:var(--store-primary)]/5"
+            role="tab"
+            aria-selected={filter === f}
+            onClick={() => setFilter(f)}
+            className={`inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-medium transition-all duration-200 ${
+              filter === f
+                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
-            <div className="flex items-start gap-3">
-              <Bell size={16} className="mt-0.5 shrink-0 text-[color:var(--store-primary)]" />
-              <div className="min-w-0">
-                <div className="font-semibold">{n.title}</div>
-                {n.message ? <p className="mt-1 text-sm leading-relaxed text-zinc-500">{n.message}</p> : null}
-              </div>
-            </div>
+            {f === "all" ? t("همه", "All") : t("خوانده‌نشده", "Unread")}
+            {f === "unread" && unread > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[color:var(--store-primary)] px-1.5 text-[11px] font-bold text-white">
+                {unread}
+              </span>
+            ) : null}
           </button>
         ))}
-        {!items.length ? (
-          <div className="rounded-[1.5rem] border border-dashed border-zinc-300 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            {t("اعلانی نیست.", "No alerts.")}
-          </div>
-        ) : null}
       </div>
+
+      <ul className="space-y-2">
+        <AnimatePresence initial={false}>
+          {visible.map((n) => (
+            <motion.li
+              key={n.id}
+              layout
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (!n.isRead) markNotificationRead.mutate(n.id);
+                }}
+                aria-label={n.isRead ? n.title : `${n.title} — ${t("خوانده‌نشده", "unread")}`}
+                className={`group relative flex w-full cursor-pointer items-start gap-3 rounded-2xl border p-3.5 text-start transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--store-primary)]/40 lg:p-4 ${
+                  n.isRead
+                    ? "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+                    : "border-[color:var(--store-primary)]/25 bg-[color:var(--store-primary)]/[0.06] hover:border-[color:var(--store-primary)]/45"
+                }`}
+              >
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone(n.type)}`}>
+                  <Bell size={17} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span className={`text-sm leading-6 ${n.isRead ? "font-medium text-zinc-700 dark:text-zinc-300" : "font-semibold"}`}>
+                      {n.title}
+                    </span>
+                    <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-zinc-400">{relTime(n.createdAt)}</span>
+                  </span>
+                  {n.message ? (
+                    <span className="mt-0.5 block whitespace-pre-line text-[13px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      {n.message}
+                    </span>
+                  ) : null}
+                </span>
+                {!n.isRead ? (
+                  <span aria-hidden className="absolute end-3 top-3 h-2 w-2 rounded-full bg-[color:var(--store-primary)]" />
+                ) : null}
+              </button>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
+
+      {!visible.length ? (
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-300 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-700">
+          <Bell size={22} className="text-zinc-300 dark:text-zinc-600" />
+          {filter === "unread" ? t("همه اعلان‌ها خوانده شده‌اند.", "You're all caught up.") : t("اعلانی نیست.", "No alerts.")}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -5,17 +5,6 @@
   background-color: var(--store-bg, transparent);
   background-image: var(--store-backdrop, none);
   background-attachment: fixed;
-  overflow-x: clip;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.store-shell a,
-.store-shell code,
-.store-shell p,
-.store-shell pre {
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .store-skin-cascade.store-shell {
@@ -49,6 +38,27 @@
   animation: store-glow-pulse 2.6s ease-in-out infinite;
 }
 
+/* Theme-aware card / sheet surface used by portal lists and PAYG sheets. */
+.store-card {
+  background-color: var(--store-panel, #fff);
+  border-color: var(--store-panel-border, rgba(15, 23, 42, 0.07));
+  color: var(--store-fg, inherit);
+}
+.dark .store-card {
+  background-color: var(--store-panel, #18181b);
+  border-color: var(--store-panel-border, rgba(255, 255, 255, 0.08));
+}
+.store-card:hover {
+  border-color: color-mix(in srgb, var(--store-primary) 28%, var(--store-panel-border, rgba(15, 23, 42, 0.1)));
+}
+.store-card[data-open="true"],
+.store-card[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--store-primary) 45%, transparent);
+}
+.store-skin-cascade .store-card {
+  backdrop-filter: blur(18px);
+}
+
 .store-focus-ring:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--store-primary) 80%, white);
   outline-offset: 2px;
@@ -77,15 +87,19 @@
 
 .store-skin-lumen .store-panel {
   border: 1px solid var(--store-panel-border);
-  background: #fff;
+  background: var(--store-panel, #fff);
   box-shadow: none;
 }
 
 .store-skin-cascade .store-glass {
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--store-panel-border, rgba(255, 255, 255, 0.72));
+  background: var(--store-panel, rgba(255, 255, 255, 0.94));
   box-shadow: 0 20px 48px -28px rgba(15, 23, 42, 0.38);
   backdrop-filter: blur(20px);
+}
+
+.dark .store-skin-cascade .store-glass {
+  box-shadow: 0 20px 48px -28px rgba(0, 0, 0, 0.55);
 }
 
 @keyframes store-glow-pulse {

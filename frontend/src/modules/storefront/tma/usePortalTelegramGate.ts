@@ -3,19 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { publicApi, setCustomerSessionToken, getCustomerSessionToken } from "@/lib/api";
-import { slugFromPathname } from "@/modules/storefront/store-slug";
 import {
   applyTelegramFullscreen,
   applyTelegramSafeArea,
   forceTelegramMiniApp,
-  isTelegramUserAgent,
+  isTelegramContext,
   loadTelegramScript,
-  waitForTelegramInitData,
 } from "./useTelegramWebApp";
 
 /**
  * Silent Telegram login for portal routes.
- * Resolves store slug from path/query/domain, then creates session from initData.
+ * Resolves store slug from query, then by-domain, then creates session from initData.
  */
 export function usePortalTelegramGate(opts?: { redirectSlug?: string | null }) {
   const queryClient = useQueryClient();
@@ -31,10 +29,15 @@ export function usePortalTelegramGate(opts?: { redirectSlug?: string | null }) {
       (await publicApi.post("/store/telegram/session", payload)).data as {
         sessionToken: string;
         store?: { slug?: string };
+        dashboard?: unknown;
       },
     onSuccess: async (data) => {
       setCustomerSessionToken(data.sessionToken);
-      await queryClient.invalidateQueries({ queryKey: ["customer-session"] });
+      if (data.dashboard) {
+        queryClient.setQueryData(["customer-session"], data.dashboard);
+      } else {
+        await queryClient.invalidateQueries({ queryKey: ["customer-session"] });
+      }
       if (data.store?.slug) setResolvedSlug(data.store.slug);
       setPhase("done");
     },
@@ -47,104 +50,92 @@ export function usePortalTelegramGate(opts?: { redirectSlug?: string | null }) {
   useEffect(() => {
     let cancelled = false;
 
-    const resolveSlug = async (): Promise<string> => {
-      const params = new URLSearchParams(window.location.search);
-      let slug =
-        opts?.redirectSlug ||
-        params.get("slug") ||
-        slugFromPathname(window.location.pathname) ||
-        "";
-
-      if (!slug) {
-        try {
-          const host = window.location.host;
-          const res = await publicApi.get("/store/public/by-domain", {
-            params: { domain: host },
-          });
-          slug = res.data?.store?.slug || "";
-        } catch {
-          /* ignore */
-        }
-      }
-      return slug;
-    };
-
     const run = async () => {
       if (typeof window === "undefined") return;
-      setPhase("checking");
 
-      const forced = forceTelegramMiniApp();
-      const maybeTg = forced || isTelegramUserAgent();
+      const inTg = forceTelegramMiniApp() || isTelegramContext();
 
-      // Load SDK BEFORE deciding skip — initData is only available after the script runs.
-      if (maybeTg) {
-        try {
-          await loadTelegramScript();
-        } catch {
-          /* continue — may already be injected by layout */
-        }
-        if (cancelled) return;
-        applyTelegramFullscreen(window.Telegram?.WebApp);
-        applyTelegramSafeArea(window.Telegram?.WebApp);
-        window.setTimeout(() => {
-          if (!cancelled) applyTelegramSafeArea(window.Telegram?.WebApp);
-        }, 300);
-        window.setTimeout(() => {
-          if (!cancelled) applyTelegramSafeArea(window.Telegram?.WebApp);
-        }, 1000);
-      }
-
-      let initData = window.Telegram?.WebApp?.initData || "";
-      if (maybeTg && !initData) {
-        try {
-          initData = await waitForTelegramInitData({
-            timeoutMs: forced ? 5500 : 2500,
-            isCancelled: () => cancelled,
-          });
-        } catch {
-          initData = window.Telegram?.WebApp?.initData || "";
-        }
-      }
-      if (cancelled) return;
-
-      const inTg = forced || Boolean(initData);
-
-      // Prefer fresh Telegram session whenever we have signed initData.
-      if (inTg && initData) {
-        const slug = await resolveSlug();
-        if (cancelled) return;
-        if (!slug) {
-          setError("Open the Mini App from the store bot (Open button).");
-          setPhase("error");
-          return;
-        }
-        setResolvedSlug(slug);
-        if (booted.current) return;
-        booted.current = true;
-        setPhase("authing");
-        silentLogin.mutate({ slug, initData });
-        return;
-      }
-
-      // Already signed in on web (or TG without initData yet)
+      // Already signed in (web or prior TG session)
       if (getCustomerSessionToken()) {
-        const slug = await resolveSlug();
-        if (!cancelled && slug) setResolvedSlug(slug);
-        setPhase(inTg ? "done" : "skip");
+        if (inTg) {
+          setPhase("done");
+        } else {
+          setPhase("skip");
+        }
         return;
       }
 
       // Browser / web portal — show token form
       if (!inTg) {
-        const slug = await resolveSlug();
-        if (!cancelled && slug) setResolvedSlug(slug);
         setPhase("skip");
         return;
       }
 
-      // Forced Mini App but initData never arrived
-      setError("Open the Mini App from the store bot inside Telegram.");
-      setPhase("error");
+      setPhase("checking");
+      const params = new URLSearchParams(window.location.search);
+      const knownSlug = opts?.redirectSlug || params.get("slug") || "";
+      // Domain lookup runs alongside the Telegram script download instead of after it.
+      const slugPromise: Promise<string> = knownSlug
+        ? Promise.resolve(knownSlug)
+        : publicApi
+            .get("/store/public/by-domain", { params: { domain: window.location.host } })
+            .then((res) => String(res.data?.store?.slug || ""))
+            .catch(() => "");
+      try {
+        await loadTelegramScript();
+      } catch {
+        /* continue */
+      }
+      if (cancelled) return;
+      applyTelegramFullscreen(window.Telegram?.WebApp);
+      applyTelegramSafeArea(window.Telegram?.WebApp);
+      window.setTimeout(() => applyTelegramSafeArea(window.Telegram?.WebApp), 300);
+      window.setTimeout(() => applyTelegramSafeArea(window.Telegram?.WebApp), 1000);
+
+      const slug = await slugPromise;
+      if (cancelled) return;
+
+      if (!slug) {
+        // Wait for initData a bit then fail clearly — never show token form in TG
+        setError("Open the Mini App from the store bot (Open button).");
+        setPhase("error");
+        return;
+      }
+
+      setResolvedSlug(slug);
+
+      // Wait for initData
+      let ticks = 0;
+      const waitInit = (): Promise<string> =>
+        new Promise((resolve, reject) => {
+          const tick = () => {
+            if (cancelled) return;
+            const data = window.Telegram?.WebApp?.initData || "";
+            if (data) {
+              resolve(data);
+              return;
+            }
+            ticks += 1;
+            if (ticks >= 100) {
+              reject(new Error("Open this Mini App from the store bot inside Telegram."));
+              return;
+            }
+            window.setTimeout(tick, 50);
+          };
+          tick();
+        });
+
+      try {
+        const initData = await waitInit();
+        if (cancelled || booted.current) return;
+        booted.current = true;
+        setPhase("authing");
+        silentLogin.mutate({ slug, initData });
+      } catch (e: any) {
+        if (cancelled) return;
+        setError(e?.message || "Telegram sign-in failed");
+        setPhase("error");
+      }
     };
 
     void run();

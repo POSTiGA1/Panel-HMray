@@ -79,14 +79,6 @@ export function buildStoreMetadata(input: {
   return {
     title,
     description,
-    ...(input.image
-      ? {
-          icons: {
-            icon: absoluteUrl(input.image, input.origin),
-            apple: absoluteUrl(input.image, input.origin),
-          },
-        }
-      : {}),
     openGraph: {
       title,
       description,

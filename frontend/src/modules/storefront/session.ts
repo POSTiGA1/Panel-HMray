@@ -7,6 +7,51 @@ import {
   getCustomerSessionToken,
 } from "@/lib/api";
 import type { CustomerDashboard } from "./types";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
+
+/**
+ * Mark-read mutations patch the cached dashboard instantly and never refetch it —
+ * rebuilding the full customer dashboard per click made the portal feel frozen.
+ * The regular session poll reconciles with the server afterwards.
+ */
+export function optimisticNotificationRead(queryClient: QueryClient, queryKey: QueryKey) {
+  const patch = (ids: string[] | "all") => {
+    const previous = queryClient.getQueryData<CustomerDashboard>(queryKey);
+    if (previous?.notifications) {
+      const now = new Date().toISOString();
+      queryClient.setQueryData<CustomerDashboard>(queryKey, {
+        ...previous,
+        notifications: previous.notifications.map((n) =>
+          ids === "all" || ids.includes(n.id) ? { ...n, isRead: true, readAt: n.readAt || now } : n,
+        ),
+      });
+    }
+    return { previous };
+  };
+  const rollback = (ctx?: { previous?: CustomerDashboard }) => {
+    if (ctx?.previous) queryClient.setQueryData(queryKey, ctx.previous);
+  };
+  return {
+    single: {
+      mutationFn: async (notificationId: string) =>
+        (await publicApi.post(`/store/customer/notifications/${notificationId}/read`)).data,
+      onMutate: async (notificationId: string) => {
+        await queryClient.cancelQueries({ queryKey });
+        return patch([notificationId]);
+      },
+      onError: (_err: unknown, _id: string, ctx?: { previous?: CustomerDashboard }) => rollback(ctx),
+    },
+    all: {
+      mutationFn: async (_?: void) =>
+        (await publicApi.post(`/store/customer/notifications/read-all`)).data,
+      onMutate: async (_?: void) => {
+        await queryClient.cancelQueries({ queryKey });
+        return patch("all");
+      },
+      onError: (_err: unknown, _v: void, ctx?: { previous?: CustomerDashboard }) => rollback(ctx),
+    },
+  };
+}
 
 export function useCustomerSession() {
   const queryClient = useQueryClient();
@@ -16,7 +61,9 @@ export function useCustomerSession() {
     queryFn: async () => (await publicApi.get("/store/customer/session")).data,
     retry: false,
     enabled: typeof window !== "undefined" && !!getCustomerSessionToken(),
-    refetchInterval: 20_000,
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const login = useMutation({
@@ -36,21 +83,9 @@ export function useCustomerSession() {
     },
   });
 
-  const markNotificationRead = useMutation({
-    mutationFn: async (notificationId: string) =>
-      (await publicApi.post(`/store/customer/notifications/${notificationId}/read`)).data,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-session"] });
-    },
-  });
-
-  const markAllNotificationsRead = useMutation({
-    mutationFn: async () =>
-      (await publicApi.post(`/store/customer/notifications/read-all`)).data,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-session"] });
-    },
-  });
+  const notifRead = optimisticNotificationRead(queryClient, ["customer-session"]);
+  const markNotificationRead = useMutation(notifRead.single);
+  const markAllNotificationsRead = useMutation(notifRead.all);
 
   const cancelOrder = useMutation({
     mutationFn: async (orderId: string) =>
@@ -103,6 +138,32 @@ export function useCustomerSession() {
     },
   });
 
+  const requestCancel = useMutation({
+    mutationFn: async (input: {
+      id: string;
+      targetType?: "vpn_client" | "payg_sub";
+      reason?: string;
+    }) =>
+      (
+        await publicApi.post(`/store/customer/services/${encodeURIComponent(input.id)}/cancel-request`, {
+          targetType: input.targetType,
+          reason: input.reason,
+        })
+      ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-cancel-requests"] });
+    },
+  });
+
+  const requestSettlement = useMutation({
+    mutationFn: async (input: { amount: number; cardNumber: string; cardHolder?: string }) =>
+      (await publicApi.post("/store/customer/wallet/settlement", input)).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-wallet-settlements"] });
+      await queryClient.invalidateQueries({ queryKey: ["customer-wallet"] });
+    },
+  });
+
   return {
     ...sessionQuery,
     login,
@@ -113,5 +174,7 @@ export function useCustomerSession() {
     claimService,
     assignServiceCategory,
     hideService,
+    requestCancel,
+    requestSettlement,
   };
 }

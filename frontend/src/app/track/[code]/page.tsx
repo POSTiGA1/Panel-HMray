@@ -24,6 +24,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { StoreShell } from "@/modules/storefront/ui";
 import { StorefrontLocaleProvider, useStorefrontLocale } from "@/modules/storefront/locale";
 import { portalPathForSlug, shopPathForSlug } from "@/modules/storefront/store-slug";
+import { DigitalCodeBox, type DigitalOrderView } from "@/modules/storefront/DigitalCodeBox";
 
 function portalHref(storeSlug?: string | null, customerToken?: string | null) {
   const hasSession =
@@ -130,6 +131,38 @@ const colorClasses: Record<string, string> = {
   zinc: "bg-zinc-50 border-zinc-200 text-zinc-600 dark:bg-zinc-500/10 dark:border-zinc-700 dark:text-zinc-300",
 };
 
+type StatusCfg = (typeof STATUS_META)[StatusKey];
+
+const DIGITAL_STATUS_OVERRIDES: Partial<Record<StatusKey, Partial<StatusCfg>>> = {
+  APPROVED: {
+    fa: ["پرداخت تأیید شد", "در حال آماده‌سازی محصول شما…"],
+    en: ["Payment approved", "Preparing your product…"],
+  },
+  PROVISIONING: {
+    fa: ["آماده‌سازی محصول", "محصول شما در حال آماده‌سازی است."],
+    en: ["Preparing product", "Your product is being prepared."],
+  },
+  PROVISION_FAILED: {
+    fa: ["خطا در تحویل", "پرداخت تأیید شد؛ اپراتور محصول را تحویل می‌دهد."],
+    en: ["Delivery issue", "Payment was approved; an operator will deliver it."],
+  },
+  ACTIVE: {
+    fa: ["تحویل شد", "کد / متن تحویل در پایین نمایش داده شده است."],
+    en: ["Delivered", "Your delivery code / text is shown below."],
+  },
+  RENEWED: {
+    fa: ["تحویل شد", "کد / متن تحویل در پایین نمایش داده شده است."],
+    en: ["Delivered", "Your delivery code / text is shown below."],
+  },
+};
+
+const DIGITAL_WAITING: Partial<StatusCfg> = {
+  icon: Clock,
+  color: "sky",
+  fa: ["در انتظار تحویل اپراتور", "پرداخت تأیید شد. به‌محض ارسال توسط اپراتور، کد همین‌جا نمایش داده می‌شود."],
+  en: ["Waiting for operator", "Payment approved. The code will appear here as soon as the operator sends it."],
+};
+
 function timelineDotClass(status: string, message?: string | null) {
   if (status === "PROVISION_FAILED" || status === "REJECTED" || status === "CANCELLED") {
     return "bg-red-500";
@@ -153,7 +186,11 @@ export default function TrackOrderPage() {
     queryFn: async () => (await publicApi.get(`/store/track/${encodeURIComponent(code)}`)).data,
     enabled: !!code,
     refetchInterval: (query: any) => {
-      const s = query?.state?.data?.status;
+      const d = query?.state?.data;
+      const s = d?.status;
+      if (d?.isDigital && d?.digital?.pendingManual && ["ACTIVE", "RENEWED", "APPROVED"].includes(s)) {
+        return 8000;
+      }
       return ["PENDING_PAYMENT", "PAYMENT_SUBMITTED", "UNDER_REVIEW", "APPROVED", "PROVISIONING"].includes(s)
         ? 5000
         : false;
@@ -275,13 +312,22 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
   const [copied, setCopied] = useState<"sub" | "token" | null>(null);
   const [showQR, setShowQR] = useState(false);
 
+  const isDigital = !!data.isDigital;
+  const digitalView = data.digital as DigitalOrderView | null | undefined;
+  const digitalWaiting =
+    isDigital &&
+    (data.status === "ACTIVE" || data.status === "RENEWED" || data.status === "APPROVED") &&
+    !!digitalView?.pendingManual;
   const statusKey = (data.status in STATUS_META ? data.status : "UNDER_REVIEW") as StatusKey;
-  const cfg = STATUS_META[statusKey];
-  const StatusIcon = cfg.icon;
-  const title = isFa ? cfg.fa[0] : cfg.en[0];
-  const desc = isFa ? cfg.fa[1] : cfg.en[1];
+  const baseCfg = STATUS_META[statusKey];
+  const cfg = isDigital ? { ...baseCfg, ...(DIGITAL_STATUS_OVERRIDES[statusKey] || {}) } : baseCfg;
+  const effectiveCfg = digitalWaiting ? { ...cfg, ...DIGITAL_WAITING } : cfg;
+  const StatusIcon = effectiveCfg.icon;
+  const title = isFa ? effectiveCfg.fa[0] : effectiveCfg.en[0];
+  const desc = isFa ? effectiveCfg.fa[1] : effectiveCfg.en[1];
 
-  const isComplete = data.status === "ACTIVE" || data.status === "RENEWED";
+  const isComplete = (data.status === "ACTIVE" || data.status === "RENEWED") && !isDigital;
+  const digitalDelivered = isDigital && !!digitalView?.delivered;
   const isFailed = data.status === "PROVISION_FAILED";
   const isRejected = data.status === "REJECTED";
   const statusMessage =
@@ -299,10 +345,18 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
 
   const subLink = useMemo(() => {
     const native = String(data.delivery?.subUrl || "").trim();
+    const isEylan = data.delivery?.providerId === "eylan";
+    // Eylan: only absolute /sub/{token}/{user} — never invent HMPanel /s/{username}.
+    if (isEylan) {
+      if (native && /^https?:\/\//i.test(native) && /\/sub\/[^/]+\/[^/]+/i.test(native)) {
+        return native;
+      }
+      return "";
+    }
     if (native && /^https?:\/\//i.test(native)) return native;
     if (!(data.delivery?.subId || data.delivery?.email)) return "";
-    return buildSubscriptionLink(data.delivery.subId, data.delivery.email, data.delivery?.subUrl);
-  }, [data.delivery?.subId, data.delivery?.email, data.delivery?.subUrl]);
+    return buildSubscriptionLink(data.delivery.subId, data.delivery.email);
+  }, [data.delivery?.subId, data.delivery?.email, data.delivery?.subUrl, data.delivery?.providerId]);
 
   const handleCopy = async (text: string, kind: "sub" | "token") => {
     await copyToClipboard(text);
@@ -338,7 +392,7 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
         ) : null}
       </header>
 
-      <section className={`rounded-2xl border px-5 py-6 text-center ${colorClasses[cfg.color]}`}>
+      <section className={`rounded-2xl border px-5 py-6 text-center ${colorClasses[effectiveCfg.color]}`}>
         <StatusIcon
           size={36}
           className={`mx-auto mb-3 ${data.status === "PROVISIONING" ? "animate-spin" : ""}`}
@@ -346,6 +400,25 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
         <p className="mt-1 text-sm opacity-80">{statusMessage}</p>
       </section>
+
+      {isDigital && !digitalDelivered && data.digitalOrderMessage && !isRejected ? (
+        <p className="whitespace-pre-line rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm leading-relaxed text-sky-900 dark:text-sky-100">
+          {data.digitalOrderMessage}
+        </p>
+      ) : null}
+
+      {digitalDelivered && digitalView ? (
+        <section className="rounded-2xl border border-emerald-300/70 bg-white p-5 shadow-sm dark:border-emerald-800 dark:bg-zinc-900">
+          <DigitalCodeBox
+            view={digitalView}
+            productName={data.productName}
+            onLockedAction={() => {
+              window.location.href = portalHref(data.storeSlug, data.customerToken);
+            }}
+            lockedActionLabel={t("ورود به پورتال مشتری", "Open customer portal")}
+          />
+        </section>
+      ) : null}
 
       {/* Order summary */}
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -365,7 +438,13 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
           />
           <Row
             label={t("نوع", "Type")}
-            value={data.isRenewal ? t("تمدید", "Renewal") : t("سرویس جدید", "New service")}
+            value={
+              isDigital
+                ? t("محصول دیجیتال", "Digital product")
+                : data.isRenewal
+                  ? t("تمدید", "Renewal")
+                  : t("سرویس جدید", "New service")
+            }
           />
           <Row label={t("مبلغ", "Amount")} value={<span className="font-semibold tabular-nums">{amountLabel}</span>} />
         </div>
@@ -456,7 +535,12 @@ function TrackBody({ data, isFetching }: { data: any; isFetching: boolean }) {
             </div>
           ) : (
             <div className="border-t border-emerald-100 px-5 py-4 text-sm text-emerald-800 dark:border-emerald-900 dark:text-emerald-200">
-              {t("سرویس فعال است. از پورتال مدیریت کنید.", "Service is active. Manage it from the portal.")}
+              {data.delivery?.providerId === "eylan"
+                ? t(
+                    "لینک ساب Eylan هنوز آماده نیست. صفحه را چند ثانیه بعد رفرش کنید یا از پورتال دوباره باز کنید.",
+                    "Eylan subscription link is not ready yet. Refresh in a few seconds or reopen from the portal.",
+                  )
+                : t("سرویس فعال است. از پورتال مدیریت کنید.", "Service is active. Manage it from the portal.")}
             </div>
           )}
 

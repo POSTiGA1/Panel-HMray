@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, LoaderCircle, Upload, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Gift, LoaderCircle, Shield, Upload, X, Zap } from "lucide-react";
 import { publicApi } from "@/lib/api";
 import { formatQuotaLabel } from "@/lib/format";
 import { FieldBlock, springSoft } from "@/modules/storefront/design";
@@ -16,6 +16,8 @@ import {
 } from "@/modules/storefront/payment-methods";
 import { useStorefrontLocale } from "@/modules/storefront/locale";
 import type {
+  CustomerBuyKind,
+  CustomerBuyMenu,
   CustomerService,
   StorefrontCategory,
   StorefrontProduct,
@@ -32,11 +34,50 @@ import {
 import { motion } from "framer-motion";
 
 type FlowMode = "idle" | "buy" | "renew";
-type PortalStepId = "category" | "product" | "extras" | "payment";
+type PortalStepId = "kind" | "category" | "product" | "extras" | "payment";
 
-function buildPortalSteps(mode: FlowMode): PortalStepId[] {
+export type BuyKindOption = { id: CustomerBuyKind; label: string; hint?: string };
+
+function buildPortalSteps(mode: FlowMode, digital = false, withKind = false): PortalStepId[] {
   if (mode === "renew") return ["product", "extras", "payment"];
-  return ["category", "product", "extras", "payment"];
+  const head: PortalStepId[] = withKind ? ["kind"] : [];
+  if (digital) return [...head, "category", "product", "payment"];
+  return [...head, "category", "product", "extras", "payment"];
+}
+
+const KIND_ICONS: Record<CustomerBuyKind, typeof Shield> = {
+  vpn: Shield,
+  digital: Gift,
+  payg: Zap,
+};
+
+/** Mirrors the bot buy hub: admin label when set, otherwise the bot's default button text. */
+export function resolveBuyKindOptions(
+  menu: CustomerBuyMenu | undefined,
+  fallback: Record<CustomerBuyKind, boolean>,
+  t: (fa: string, en: string) => string,
+): BuyKindOption[] {
+  const defaults: Record<CustomerBuyKind, { label: string; hint: string }> = {
+    vpn: {
+      label: t("🛡 خرید VPN", "🛡 Buy VPN"),
+      hint: t("اشتراک با حجم و زمان مشخص", "Subscription with fixed traffic and days"),
+    },
+    digital: {
+      label: t("🎁 کالای دیجیتال", "🎁 Digital goods"),
+      hint: t("کد یا محصول تحویلی بدون کانفیگ", "Delivered codes and items, no config"),
+    },
+    payg: {
+      label: t("⚡ پرداخت به‌ازای مصرف", "⚡ Pay as you go"),
+      hint: t("پرداخت از کیف پول به‌اندازه مصرف", "Billed from your wallet as you use it"),
+    },
+  };
+  return (["vpn", "digital", "payg"] as CustomerBuyKind[])
+    .filter((id) => (menu ? menu[id]?.available : fallback[id]))
+    .map((id) => ({
+      id,
+      label: String(menu?.[id]?.label || "").trim() || defaults[id].label,
+      hint: defaults[id].hint,
+    }));
 }
 
 export function CheckoutSheet({
@@ -67,8 +108,12 @@ export function CheckoutSheet({
   storeSlug,
   paymentMethod,
   setPaymentMethod,
+  kindOptions = [],
+  onPickPayg,
   hasTelegramUserId = false,
 }: {
+  kindOptions?: BuyKindOption[];
+  onPickPayg?: () => void;
   mode: FlowMode;
   step: number;
   setStep: Dispatch<SetStateAction<number>>;
@@ -98,7 +143,7 @@ export function CheckoutSheet({
   setPaymentMethod: (m: CheckoutPayMethod) => void;
   hasTelegramUserId?: boolean;
 }) {
-  const { t, formatToman, isFa } = useStorefrontLocale();
+  const { t, formatToman, formatUsd, isFa } = useStorefrontLocale();
   const lockedCategoryId = mode === "renew" ? String(renewingService?.categoryId || "") : "";
   const [categoryId, setCategoryId] = useState(lockedCategoryId);
   const [couponBusy, setCouponBusy] = useState(false);
@@ -110,36 +155,49 @@ export function CheckoutSheet({
     if (lockedCategoryId) setCategoryId(lockedCategoryId);
   }, [lockedCategoryId]);
 
+  const withKind = mode === "buy" && kindOptions.length > 1;
+  const [kind, setKind] = useState<CustomerBuyKind | null>(() =>
+    mode === "buy" && kindOptions.length === 1 && kindOptions[0].id !== "payg" ? kindOptions[0].id : null,
+  );
+
+  const kindProducts = useMemo(
+    () =>
+      products.filter((p) => {
+        const k: CustomerBuyKind = p.kind === "DIGITAL" ? "digital" : p.kind === "PAYG" ? "payg" : "vpn";
+        if (k === "payg") return false;
+        return mode !== "buy" || !kind || k === kind;
+      }),
+    [products, kind, mode],
+  );
+
   const chipCategories = useMemo(() => {
-    const ids = new Set(products.map((p) => p.categoryId).filter(Boolean));
+    const ids = new Set(kindProducts.map((p) => p.categoryId).filter(Boolean));
     return [...categories]
       .filter((c) => ids.has(c.id))
       .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || a.name.localeCompare(b.name));
-  }, [products, categories]);
+  }, [kindProducts, categories]);
 
   const catalog = useMemo(() => {
     const cat = categoryId || lockedCategoryId;
-    return [...products]
+    return [...kindProducts]
       .filter((p) => !cat || p.categoryId === cat)
       .sort(
         (a, b) =>
           Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || (a.name || "").localeCompare(b.name || ""),
       );
-  }, [products, categoryId, lockedCategoryId]);
+  }, [kindProducts, categoryId, lockedCategoryId]);
 
-  const steps = buildPortalSteps(mode);
+  const steps = buildPortalSteps(
+    mode,
+    selectedProduct?.kind === "DIGITAL" || kind === "digital",
+    withKind,
+  );
   const safeStep = Math.min(Math.max(0, step), Math.max(0, steps.length - 1));
   const current = steps[safeStep] || "product";
   const paymentCards = resolvePaymentCards(payment);
-  const payOptions = storefrontPayOptions(payment, {
-    hasWalletSession: true,
-    hasTelegramUserId,
-  });
+  const payOptions = storefrontPayOptions(payment, { hasWalletSession: true, hasTelegramUserId });
   const preview = computeCheckoutPreview(selectedProduct, selectedAddonIds, couponPreview);
-  const money = (value: number) =>
-    preview.hasToman
-      ? formatToman(value)
-      : `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const money = (value: number) => (preview.hasToman ? formatToman(value) : formatUsd(value));
 
   useEffect(() => {
     if (current !== "payment" || !selectedProduct?.id) return;
@@ -214,7 +272,27 @@ export function CheckoutSheet({
     }
   };
 
+  const pickKind = (id: CustomerBuyKind) => {
+    if (id === "payg") {
+      onPickPayg?.();
+      return;
+    }
+    if (id !== kind) {
+      setCategoryId("");
+      setSelectedProduct(null);
+      setSelectedAddonIds([]);
+      setCouponCode("");
+      setCouponPreview(null);
+    }
+    setKind(id);
+    setStep((s) => s + 1);
+  };
+
   const goNext = () => {
+    if (current === "kind") {
+      if (kind) setStep((s) => s + 1);
+      return;
+    }
     if (current === "category" && !categoryId) return;
     if (current === "product" && !selectedProduct) return;
     if (current === "extras" && mode === "buy" && !configName.trim()) return;
@@ -228,13 +306,16 @@ export function CheckoutSheet({
 
   const nextDisabled =
     submitting ||
+    (current === "kind" && !kind) ||
     (current === "category" && !categoryId) ||
     (current === "product" && !selectedProduct) ||
     (current === "extras" && mode === "buy" && !configName.trim()) ||
     (current === "payment" && isReceiptPayMethod(paymentMethod) && !receiptText.trim() && !receiptPreview);
 
   const stepLabel =
-    current === "category"
+    current === "kind"
+      ? t("نوع خرید", "Type")
+      : current === "category"
       ? t("دسته", "Category")
       : current === "product"
         ? t("پلن", "Plan")
@@ -251,7 +332,7 @@ export function CheckoutSheet({
         initial={{ y: 48, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={springSoft}
-        className={`relative z-10 flex max-h-[min(92dvh,calc(100dvh-1.5rem))] w-full max-w-lg flex-col overflow-hidden rounded-t-[1.85rem] bg-white shadow-2xl dark:bg-zinc-950 sm:max-h-[min(90dvh,calc(100dvh-3rem))] sm:rounded-[1.85rem] ${
+        className={`relative z-10 flex max-h-[min(92dvh,calc(100dvh-1.5rem))] w-full max-w-lg flex-col overflow-hidden rounded-t-[1.85rem] bg-white shadow-2xl dark:bg-zinc-950 lg:max-w-xl sm:max-h-[min(90dvh,calc(100dvh-3rem))] sm:rounded-[1.85rem] ${
           isFa ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""
         }`}
       >
@@ -260,7 +341,8 @@ export function CheckoutSheet({
           <button
             type="button"
             onClick={() => (safeStep === 0 ? onClose() : setStep((s) => Math.max(0, s - 1)))}
-            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-[#F5F5F7] dark:bg-zinc-900"
+            aria-label={safeStep === 0 ? t("بستن", "Close") : t("بازگشت", "Back")}
+            className="store-focus-ring flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-[#F5F5F7] transition-colors duration-200 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800"
           >
             {safeStep === 0 ? <X size={18} /> : <ChevronLeft size={20} className={isFa ? "rotate-180" : ""} />}
           </button>
@@ -286,6 +368,38 @@ export function CheckoutSheet({
                   "Selected plan volume and days are added to this service. Used traffic and settings are kept.",
                 )}
               </p>
+            </div>
+          ) : null}
+
+          {current === "kind" ? (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold">{t("چه چیزی می‌خواهید بخرید؟", "What would you like to buy?")}</p>
+              {kindOptions.map((opt) => {
+                const Icon = KIND_ICONS[opt.id];
+                const Chevron = isFa ? ChevronLeft : ChevronRight;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => pickKind(opt.id)}
+                    aria-pressed={kind === opt.id}
+                    className={`store-focus-ring group flex min-h-[68px] w-full cursor-pointer items-center gap-3 rounded-2xl border px-3.5 py-3 text-start transition-[border-color,background-color] duration-200 ${
+                      kind === opt.id
+                        ? "border-[color:var(--store-primary)] bg-[color:var(--store-primary)]/10"
+                        : "border-zinc-200 hover:border-[color:var(--store-primary)]/40 hover:bg-[color:var(--store-primary)]/[0.04] dark:border-zinc-800"
+                    }`}
+                  >
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--store-primary)]/10 text-[color:var(--store-primary)]">
+                      <Icon size={20} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15px] font-bold">{opt.label}</span>
+                      {opt.hint ? <span className="mt-0.5 block text-xs text-zinc-500">{opt.hint}</span> : null}
+                    </span>
+                    <Chevron size={18} className="shrink-0 text-zinc-300 dark:text-zinc-600" />
+                  </button>
+                );
+              })}
             </div>
           ) : null}
 
@@ -321,21 +435,43 @@ export function CheckoutSheet({
                       setCouponCode("");
                       setCouponPreview(null);
                     }}
-                    className={`w-full rounded-2xl border px-3.5 py-3.5 text-start transition ${
+                    aria-pressed={active}
+                    className={`store-focus-ring group min-h-[64px] w-full cursor-pointer rounded-2xl border px-3.5 py-3.5 text-start transition-[border-color,background-color,box-shadow] duration-200 ${
                       active
-                        ? "border-[color:var(--store-primary)] bg-[color:var(--store-primary)]/10"
-                        : "border-zinc-200 dark:border-zinc-800"
+                        ? "border-[color:var(--store-primary)] bg-[color:var(--store-primary)]/10 shadow-[0_10px_26px_-18px_var(--store-primary)]"
+                        : "border-zinc-200 hover:border-[color:var(--store-primary)]/40 hover:bg-[color:var(--store-primary)]/[0.04] dark:border-zinc-800"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold">{p.name}</div>
-                        <div className="text-xs text-zinc-500">
-                          {formatQuotaLabel(p.traffic, p.durationDays, { locale: isFa ? "fa" : "en" })}
+                      <span
+                        aria-hidden
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-200 ${
+                          active
+                            ? "border-[color:var(--store-primary)] bg-[color:var(--store-primary)]"
+                            : "border-zinc-300 group-hover:border-[color:var(--store-primary)]/60 dark:border-zinc-600"
+                        }`}
+                      >
+                        {active ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate font-semibold">{p.name}</span>
+                          {p.kind === "DIGITAL" ? (
+                            <span className="shrink-0 rounded-full bg-violet-500/12 px-1.5 py-px text-[10px] font-bold text-violet-700 dark:text-violet-300">
+                              {t("دیجیتال", "Digital")}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          {p.kind === "DIGITAL"
+                            ? p.digitalDeliveryHint === "operator"
+                              ? t("تحویل توسط اپراتور", "Delivered by operator")
+                              : t("تحویل خودکار", "Automatic delivery")
+                            : formatQuotaLabel(p.traffic, p.durationDays, { locale: isFa ? "fa" : "en" })}
                         </div>
                       </div>
                       <div className="shrink-0 text-sm font-bold text-[color:var(--store-primary)]">
-                        {p.priceToman ? formatToman(p.priceToman) : `$${p.priceUsd}`}
+                        {Number(p.priceToman || 0) > 0 ? formatToman(p.priceToman) : formatUsd(p.priceUsd)}
                       </div>
                     </div>
                     {active && p.description ? (
@@ -472,7 +608,9 @@ export function CheckoutSheet({
                           ? t("تلگرام استارز", "Telegram Stars")
                           : opt.id === "TELEGRAM_WALLET"
                             ? WALLET_PAY_BUTTON_TEXT
-                          : t("کارت + رسید", "Card + receipt")}
+                            : opt.id === "CRYPTO"
+                              ? t("کریپتو + رسید", "Crypto + receipt")
+                              : t("کارت + رسید", "Card + receipt")}
                     </button>
                   ))}
                 </div>

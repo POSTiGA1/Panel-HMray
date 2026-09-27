@@ -25,10 +25,21 @@ type LocaleContextValue = {
   formatToman: (value: number | string | null | undefined) => string;
   formatUsd: (value: number | string | null | undefined) => string;
   formatProductPrice: (
-    product: { priceUsd?: number | null; priceToman?: number | null },
+    product: { priceUsd?: number | null; priceToman?: number | null; kind?: string | null },
     defaultCurrency?: string | null,
   ) => string | null;
 };
+
+/** Digital goods are always priced in Toman, regardless of the store default currency. */
+function prefersToman(
+  product: { kind?: string | null },
+  defaultCurrency?: string | null,
+): boolean {
+  return (
+    String(product.kind || "").toUpperCase() === "DIGITAL" ||
+    ["TOMAN", "IRT", "IRR", "TMN"].includes(String(defaultCurrency || "").toUpperCase())
+  );
+}
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
@@ -111,7 +122,7 @@ function StorefrontLocaleProviderInner({
       formatProductPrice: (product, defaultCurrency) => {
         const usd = Number(product.priceUsd || 0);
         const toman = Number(product.priceToman || 0);
-        const preferToman = isTomanCurrency(defaultCurrency);
+        const preferToman = isTomanCurrency(defaultCurrency) || prefersToman(product, defaultCurrency);
         if (preferToman) {
           if (toman > 0) return formatToman(toman);
           if (usd > 0) return formatUsd(usd);
@@ -141,14 +152,12 @@ export function useStorefrontLocale() {
       formatUsd: (raw: number | string | null | undefined) =>
         `${Number(raw || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD`,
       formatProductPrice: (
-        product: { priceUsd?: number | null; priceToman?: number | null },
+        product: { priceUsd?: number | null; priceToman?: number | null; kind?: string | null },
         defaultCurrency?: string | null,
       ) => {
         const usd = Number(product.priceUsd || 0);
         const toman = Number(product.priceToman || 0);
-        const preferToman = ["TOMAN", "IRT", "IRR", "TMN"].includes(
-          String(defaultCurrency || "").toUpperCase(),
-        );
+        const preferToman = prefersToman(product, defaultCurrency);
         if (preferToman) {
           if (toman > 0) return `${toman.toLocaleString()} Toman`;
           if (usd > 0) return `${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD`;

@@ -15,13 +15,14 @@ import type {
 import { useStorefrontLocale } from "@/modules/storefront/locale";
 import { compressReceiptImage } from "@/modules/storefront/receipt-image";
 import {
+  WALLET_PAY_BUTTON_TEXT,
+  detectTelegramUserId,
+  isCryptoPayMethod,
   isReceiptPayMethod,
   isWalletPayMethod,
   openCheckoutPayUrl,
   pickStorefrontPayMethod,
   storefrontPayOptions,
-  detectTelegramUserId,
-  WALLET_PAY_BUTTON_TEXT,
   type CheckoutPayMethod,
 } from "@/modules/storefront/payment-methods";
 import {
@@ -36,6 +37,7 @@ import {
 import { FieldBlock } from "@/modules/storefront/design";
 import { resolveStorefrontLayout } from "@/modules/storefront/skins";
 import { BankCardVisual, resolvePaymentCards } from "@/modules/storefront/BankCardVisual";
+import { CryptoWalletVisual } from "@/modules/storefront/CryptoWalletVisual";
 import { rememberStoreSlug, portalPathForSlug } from "@/modules/storefront/store-slug";
 import { computeCheckoutPreview, type CouponPreview } from "@/modules/storefront/checkout-preview";
 import { fetchApplicableCoupons, pickAutoCouponCode, type ApplicableCouponOffer } from "@/modules/storefront/checkout-coupons";
@@ -72,6 +74,25 @@ const RENEW_STEPS: ShopStep[] = [
   "payment",
   "confirm",
 ];
+const DIGITAL_STEPS: ShopStep[] = [
+  "welcome",
+  "category",
+  "product",
+  "profile",
+  "payment",
+  "confirm",
+];
+
+type ShopStepCtx = { isRenew: boolean; isDigital?: boolean };
+
+function shopStepOrder(ctx: ShopStepCtx): ShopStep[] {
+  if (ctx.isRenew) return RENEW_STEPS;
+  return ctx.isDigital ? DIGITAL_STEPS : BUY_STEPS;
+}
+
+function isDigitalProduct(p?: StorefrontProduct | null) {
+  return String(p?.kind || "").toUpperCase() === "DIGITAL";
+}
 
 export default function ShopPage() {
   const params = useParams();
@@ -118,7 +139,12 @@ export default function ShopPage() {
     selectedAddonIds: [] as string[],
   });
   const [hasCustomerSession, setHasCustomerSession] = useState(false);
-  const [telegramUserId, setTelegramUserId] = useState<string | null>(() => detectTelegramUserId());
+  const [telegramUserId, setTelegramUserId] = useState("");
+
+  useEffect(() => {
+    const id = detectTelegramUserId();
+    if (id) setTelegramUserId(id);
+  }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["storefront", slug],
@@ -127,7 +153,13 @@ export default function ShopPage() {
   });
 
   const store = data?.store as StorefrontStore | undefined;
-  const products = (data?.products || []) as StorefrontProduct[];
+  const products = useMemo(
+    () =>
+      ((data?.products || []) as StorefrontProduct[]).filter(
+        (p) => String(p?.kind || "").toUpperCase() !== "PAYG",
+      ),
+    [data?.products],
+  );
   const categories = (data?.categories || []) as StorefrontCategory[];
   const catalog = useMemo(() => {
     const catRank = new Map(categories.map((c, i) => [c.id, c.sortOrder ?? i]));
@@ -151,7 +183,7 @@ export default function ShopPage() {
         store.payment,
         {
           hasWalletSession: hasCustomerSession || (haveToken && !!c.customerToken),
-          hasTelegramUserId: !!(telegramUserId || detectTelegramUserId()),
+          hasTelegramUserId: !!telegramUserId,
         },
         c.paymentMethod,
       );
@@ -226,6 +258,7 @@ export default function ShopPage() {
         if (me?.token) {
           setHaveToken(true);
           setHasCustomerSession(true);
+          if (me.profile?.telegramUserId) setTelegramUserId(String(me.profile.telegramUserId));
           setForm((current) => ({
             ...current,
             customerToken: me.token,
@@ -234,7 +267,6 @@ export default function ShopPage() {
             whatsapp: me.profile?.whatsapp || current.whatsapp,
             email: me.profile?.email || current.email,
           }));
-          if (me.profile?.telegramUserId) setTelegramUserId(String(me.profile.telegramUserId));
           if (isRenewFlow && renewClientId) {
             const svc = (me.services || []).find((s: any) => s.id === renewClientId);
             if (svc?.categoryId) setSelectedCategoryId(svc.categoryId);
@@ -252,6 +284,7 @@ export default function ShopPage() {
       (await publicApi.post(`/store/public/${slug}/customer`, { token })).data as CustomerProfile,
     onSuccess: (profile) => {
       setLookupError("");
+      if (profile.telegramUserId) setTelegramUserId(String(profile.telegramUserId));
       setForm((current) => ({
         ...current,
         customerToken: profile.token || current.customerToken,
@@ -260,7 +293,6 @@ export default function ShopPage() {
         whatsapp: profile.whatsapp || "",
         email: profile.email || "",
       }));
-      if (profile.telegramUserId) setTelegramUserId(String(profile.telegramUserId));
     },
     onError: () => setLookupError("Customer token was not found for this store."),
   });
@@ -277,7 +309,7 @@ export default function ShopPage() {
       return (
         await publicApi.post(`/store/public/${slug}/order`, {
           productId: product?.id,
-          configName: isRenewFlow ? undefined : form.configName,
+          configName: isRenewFlow || isDigitalProduct(product) ? undefined : form.configName,
           name: form.name,
           telegram: form.telegram,
           whatsapp: form.whatsapp,
@@ -290,10 +322,10 @@ export default function ShopPage() {
           renewClientId: isRenewFlow ? renewClientId : undefined,
           couponCode: form.couponCode || undefined,
           paymentMethod: form.paymentMethod,
+          telegramUserId: telegramUserId || undefined,
+          telegramChatId: telegramUserId || undefined,
           limitIp: form.limitIp,
           selectedAddonIds: form.selectedAddonIds,
-          telegramUserId: telegramUserId || detectTelegramUserId() || undefined,
-          telegramChatId: telegramUserId || detectTelegramUserId() || undefined,
           ...(preferToman ? { currency: "TOMAN" } : {}),
         })
       ).data;
@@ -337,6 +369,14 @@ export default function ShopPage() {
             orderStatus={result.status}
             invoiceUrl={result.invoiceUrl}
             paymentMethod={result.paymentMethod}
+            digital={
+              result.isDigital
+                ? {
+                    hint: result.digitalDeliveryHint === "operator" ? "operator" : "auto",
+                    orderMessage: result.digitalOrderMessage || "",
+                  }
+                : undefined
+            }
             onTrack={() => router.push(`/track/${result.trackingCode}`)}
           />
         </div>
@@ -386,7 +426,7 @@ export default function ShopPage() {
 
 function skippableShopStep(
   step: ShopStep,
-  ctx: { isRenew: boolean },
+  ctx: ShopStepCtx,
 ) {
   if (step === "category" && ctx.isRenew) return true;
   return false;
@@ -394,9 +434,9 @@ function skippableShopStep(
 
 function nextShopStep(
   current: ShopStep,
-  ctx: { isRenew: boolean },
+  ctx: ShopStepCtx,
 ): ShopStep {
-  const order = ctx.isRenew ? RENEW_STEPS : BUY_STEPS;
+  const order = shopStepOrder(ctx);
   const i = order.indexOf(current);
   for (let j = i + 1; j < order.length; j++) {
     if (!skippableShopStep(order[j], ctx)) return order[j];
@@ -406,9 +446,9 @@ function nextShopStep(
 
 function prevShopStep(
   current: ShopStep,
-  ctx: { isRenew: boolean },
+  ctx: ShopStepCtx,
 ): ShopStep {
-  const order = ctx.isRenew ? RENEW_STEPS : BUY_STEPS;
+  const order = shopStepOrder(ctx);
   const i = order.indexOf(current);
   for (let j = i - 1; j >= 0; j--) {
     if (!skippableShopStep(order[j], ctx)) return order[j];
@@ -448,7 +488,7 @@ function ShopBody(props: {
   isRenewFlow: boolean;
   isBuyFromPortal: boolean;
   serviceName: string;
-  telegramUserId?: string | null;
+  telegramUserId?: string;
 }) {
   const {
     store,
@@ -482,7 +522,7 @@ function ShopBody(props: {
     isRenewFlow,
     isBuyFromPortal,
     serviceName,
-    telegramUserId = null,
+    telegramUserId = "",
   } = props;
   const { t, formatToman } = useStorefrontLocale();
   const layout = resolveStorefrontLayout(store.publishedTheme?.settings);
@@ -490,9 +530,16 @@ function ShopBody(props: {
     () => resolvePaymentCards(store?.payment),
     [store?.payment],
   );
+  const paymentWallets = useMemo(
+    () =>
+      (store?.payment?.wallets || []).filter(
+        (w) => w.enabled !== false && String(w.address || "").trim(),
+      ),
+    [store?.payment],
+  );
   const payOptions = storefrontPayOptions(store?.payment, {
     hasWalletSession: hasCustomerSession || (haveToken && !!form.customerToken),
-    hasTelegramUserId: !!(telegramUserId || detectTelegramUserId()),
+    hasTelegramUserId: !!telegramUserId,
   });
   const [couponBusy, setCouponBusy] = useState(false);
   const [couponOffers, setCouponOffers] = useState<ApplicableCouponOffer[]>([]);
@@ -523,10 +570,26 @@ function ShopBody(props: {
       })(),
     ];
   }, [selectedCategoryId, chipCategories, catalog]);
-  const stepCtx = {
+  const isDigital = !isRenewFlow && isDigitalProduct(selectedProduct);
+  const stepCtx: ShopStepCtx = {
     isRenew: isRenewFlow,
+    isDigital,
   };
-  const checkoutLabels = (isRenewFlow ? RENEW_STEPS : BUY_STEPS)
+  const digitalNote = isDigital
+    ? [
+        selectedProduct?.digitalDeliveryHint === "operator"
+          ? t(
+              "این محصول توسط اپراتور تحویل داده می‌شود. پس از تأیید پرداخت، کد/متن تحویل در صفحه پیگیری نمایش داده می‌شود.",
+              "An operator delivers this product. After payment approval the delivery code/text appears on the tracking page.",
+            )
+          : t(
+              "پس از تأیید پرداخت، کد/متن تحویل به‌صورت خودکار در صفحه پیگیری نمایش داده می‌شود.",
+              "After payment approval, the delivery code/text appears automatically on the tracking page.",
+            ),
+        String(selectedProduct?.digitalOrderMessage || "").trim(),
+      ].filter(Boolean)
+    : [];
+  const checkoutLabels = shopStepOrder(stepCtx)
     .filter((s) => s !== "welcome" && !skippableShopStep(s, stepCtx))
     .map((s) => {
       if (s === "category") return t("دسته", "Category");
@@ -538,7 +601,7 @@ function ShopBody(props: {
     });
   const activeCheckoutIndex = Math.max(
     0,
-    (isRenewFlow ? RENEW_STEPS : BUY_STEPS)
+    shopStepOrder(stepCtx)
       .filter((s) => s !== "welcome" && !skippableShopStep(s, stepCtx))
       .indexOf(step),
   );
@@ -818,6 +881,7 @@ function ShopBody(props: {
                       >
                         <ProductCard
                           layout={layout}
+                          currency={store?.defaultCurrency}
                           product={product}
                           selected={selectedProduct?.id === product.id}
                           onSelect={() => {
@@ -1037,6 +1101,7 @@ function ShopBody(props: {
                   selectedAddonIds={form.selectedAddonIds}
                   coupon={couponPreview}
                 />
+                <DigitalNote lines={digitalNote} />
                 <CheckoutCouponBox
                   code={form.couponCode}
                   onCodeChange={(value) => {
@@ -1071,6 +1136,8 @@ function ShopBody(props: {
                             ? t("تلگرام استارز", "Telegram Stars")
                             : opt.id === "TELEGRAM_WALLET"
                               ? WALLET_PAY_BUTTON_TEXT
+                            : opt.id === "CRYPTO"
+                              ? t("کریپتو + رسید", "Crypto + receipt")
                               : t("کارت + رسید", "Card + receipt")}
                       </button>
                     ))}
@@ -1095,12 +1162,43 @@ function ShopBody(props: {
                 {isWalletPayMethod(form.paymentMethod) ? (
                   <p className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-3.5 py-3 text-sm text-sky-800 dark:text-sky-200">
                     {t(
-                      "پرداخت با ولت تلگرام (TON / USDT). سرویس فقط بعد از تأیید پرداخت فعال می‌شود.",
-                      "Pay with Telegram Wallet (TON / USDT). The service activates only after payment is verified.",
+                      "پرداخت با Wallet Pay تلگرام (USDT/TON). پس از تأیید پرداخت، سرویس به‌صورت خودکار فعال می‌شود.",
+                      "Pay with Telegram Wallet Pay (USDT/TON). The service activates automatically after payment is verified.",
                     )}
                   </p>
                 ) : null}
-                {isReceiptPayMethod(form.paymentMethod) ? paymentCards.map((card) => (
+                {isCryptoPayMethod(form.paymentMethod)
+                  ? paymentWallets.map((w) => {
+                      const asset = String(w.asset || "USDT").toUpperCase();
+                      const network = String(w.network || "").trim();
+                      const headline =
+                        String(w.title || "").trim() ||
+                        (network
+                          ? `پرداخت با ${asset} (${network})`
+                          : `پرداخت با ${asset}`);
+                      return (
+                        <CryptoWalletVisual
+                          key={w.id || w.address}
+                          network={w.network}
+                          asset={w.asset}
+                          address={w.address}
+                          instructions={w.instructions}
+                          walletLabel={headline}
+                          copyLabel={t("کپی آدرس", "Copy address")}
+                          copiedLabel={t("کپی شد", "Copied")}
+                        />
+                      );
+                    })
+                  : null}
+                {isCryptoPayMethod(form.paymentMethod) && !paymentWallets.length ? (
+                  <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-800 dark:text-amber-200">
+                    {t(
+                      "ولت کریپتو هنوز تنظیم نشده.",
+                      "Crypto wallet is not configured yet.",
+                    )}
+                  </p>
+                ) : null}
+                {form.paymentMethod === "MANUAL_BANK" ? paymentCards.map((card) => (
                   <BankCardVisual
                     key={card.id}
                     bankName={card.bankName}
@@ -1113,7 +1211,7 @@ function ShopBody(props: {
                     copiedLabel={t("کپی شد", "Copied")}
                   />
                 )) : null}
-                {isReceiptPayMethod(form.paymentMethod) && !paymentCards.length ? (
+                {form.paymentMethod === "MANUAL_BANK" && !paymentCards.length ? (
                   <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-800 dark:text-amber-200">
                     {t(
                       "اطلاعات کارت پرداخت هنوز تنظیم نشده.",
@@ -1176,7 +1274,20 @@ function ShopBody(props: {
                 ) : null}
                 <SummaryRow label={t("محصول", "Product")} value={selectedProduct?.name || "-"} />
                 <SummaryRow label={t("مشتری", "Customer")} value={form.name || t("پروفایل موجود", "Existing profile")} />
-                {!isRenewFlow ? <SummaryRow label={t("نام کانفیگ", "Config Name")} value={form.configName} /> : null}
+                {!isRenewFlow && !isDigital ? (
+                  <SummaryRow label={t("نام کانفیگ", "Config Name")} value={form.configName} />
+                ) : null}
+                {isDigital ? (
+                  <SummaryRow
+                    label={t("تحویل", "Delivery")}
+                    value={
+                      selectedProduct?.digitalDeliveryHint === "operator"
+                        ? t("توسط اپراتور", "By operator")
+                        : t("خودکار", "Automatic")
+                    }
+                  />
+                ) : null}
+                <DigitalNote lines={digitalNote} />
                 <CheckoutLiveSummary
                   product={selectedProduct}
                   selectedAddonIds={form.selectedAddonIds}
@@ -1187,8 +1298,8 @@ function ShopBody(props: {
                   value={
                     form.paymentMethod === "TELEGRAM_STARS"
                       ? t("تلگرام استارز", "Telegram Stars")
-                      : form.paymentMethod === "TELEGRAM_WALLET"
-                        ? WALLET_PAY_BUTTON_TEXT
+                      : isWalletPayMethod(form.paymentMethod)
+                        ? "Wallet Pay"
                       : form.paymentMethod === "WALLET"
                         ? t("کیف پول", "Wallet")
                         : form.receiptText || t("فقط تصویر رسید", "Uploaded receipt only")
@@ -1272,6 +1383,19 @@ function Input({
         className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-800 dark:bg-zinc-950"
       />
     </label>
+  );
+}
+
+function DigitalNote({ lines }: { lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <div className="space-y-1.5 rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm leading-relaxed text-sky-900 dark:text-sky-100">
+      {lines.map((line, i) => (
+        <p key={i} className="whitespace-pre-line">
+          {line}
+        </p>
+      ))}
+    </div>
   );
 }
 

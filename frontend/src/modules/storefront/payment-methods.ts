@@ -2,17 +2,19 @@
 
 import type { StorefrontStore } from "./types";
 
-export type CheckoutPayMethod = "MANUAL_BANK" | "WALLET" | "TELEGRAM_STARS" | "TELEGRAM_WALLET";
+export type CheckoutPayMethod = "MANUAL_BANK" | "CRYPTO" | "WALLET" | "TELEGRAM_STARS" | "TELEGRAM_WALLET";
 
 export type StorefrontPayOption = {
   id: CheckoutPayMethod;
-  catalogId: "manual_bank" | "wallet" | "telegram_stars" | "telegram_wallet";
+  catalogId: "manual_bank" | "crypto_manual" | "wallet" | "telegram_stars" | "telegram_wallet";
 };
 
 export const WALLET_PAY_BUTTON_TEXT = "👛 Wallet Pay";
 
 const CATALOG_TO_CHECKOUT: Record<string, CheckoutPayMethod> = {
   manual_bank: "MANUAL_BANK",
+  crypto_manual: "CRYPTO",
+  crypto: "CRYPTO",
   wallet: "WALLET",
   telegram_stars: "TELEGRAM_STARS",
   telegram_wallet: "TELEGRAM_WALLET",
@@ -45,6 +47,13 @@ export function storefrontPayOptions(
   if (catalogEnabled(payment, "manual_bank", !hasCatalog)) {
     out.push({ id: "MANUAL_BANK", catalogId: "manual_bank" });
   }
+  if (
+    catalogEnabled(payment, "crypto_manual", false) ||
+    catalogEnabled(payment, "crypto", false) ||
+    (Array.isArray(payment?.wallets) && payment!.wallets!.some((w) => w.address))
+  ) {
+    out.push({ id: "CRYPTO", catalogId: "crypto_manual" });
+  }
   if (opts?.hasWalletSession !== false && catalogEnabled(payment, "wallet", !hasCatalog)) {
     out.push({ id: "WALLET", catalogId: "wallet" });
   }
@@ -73,7 +82,13 @@ export function pickStorefrontPayMethod(
 }
 
 export function isReceiptPayMethod(method?: string | null) {
-  return String(method || "").toUpperCase() === "MANUAL_BANK";
+  const m = String(method || "").toUpperCase();
+  return m === "MANUAL_BANK" || m === "CRYPTO" || m === "CRYPTO_MANUAL";
+}
+
+export function isCryptoPayMethod(method?: string | null) {
+  const m = String(method || "").toUpperCase();
+  return m === "CRYPTO" || m === "CRYPTO_MANUAL";
 }
 
 export function isWalletPayMethod(method?: string | null) {

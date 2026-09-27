@@ -156,3 +156,43 @@ export function skinChrome(
     style: {},
   };
 }
+
+/** Dark-mode overrides for light skins (pulse is already force-dark). */
+export function skinDarkStyle(skin: StorefrontSkinId): Record<string, string> {
+  if (skin === "pulse") return {};
+  if (skin === "atelier") {
+    return {
+      "--store-bg": "#0B1220",
+      "--store-fg": "#F8FAFC",
+      "--store-muted": "#94A3B8",
+      "--store-panel": "#111827",
+      "--store-panel-border": "rgba(255,255,255,0.08)",
+    };
+  }
+  if (skin === "lumen") {
+    return {
+      "--store-bg": "#0B0B0F",
+      "--store-fg": "#F4F4F5",
+      "--store-muted": "#A1A1AA",
+      "--store-panel": "#18181B",
+      "--store-panel-border": "rgba(255,255,255,0.1)",
+    };
+  }
+  if (skin === "cascade") {
+    return {
+      "--store-bg": "transparent",
+      "--store-backdrop": "linear-gradient(165deg, #0c4a6e 0%, #312e81 52%, #4c1d95 100%)",
+      "--store-fg": "#F8FAFC",
+      "--store-muted": "#CBD5E1",
+      "--store-panel": "rgba(15,23,42,0.88)",
+      "--store-panel-border": "rgba(255,255,255,0.14)",
+    };
+  }
+  return {
+    "--store-bg": "#0B0B0F",
+    "--store-fg": "#FAFAFA",
+    "--store-muted": "#A1A1AA",
+    "--store-panel": "#18181B",
+    "--store-panel-border": "rgba(255,255,255,0.08)",
+  };
+}

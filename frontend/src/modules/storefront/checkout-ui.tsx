@@ -87,7 +87,7 @@ export function CategoryPicker({
             {layout === "split" ? (
               <span
                 className={`absolute end-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border ${
-                  active ? "border-transparent bg-[color:var(--store-primary)] text-white" : "border-slate-300 bg-white"
+                  active ? "border-transparent bg-[color:var(--store-primary)] text-white" : "border-slate-300 bg-white dark:border-white/20 dark:bg-zinc-900"
                 }`}
               >
                 {active ? <Check size={14} strokeWidth={3} /> : null}
@@ -175,33 +175,46 @@ export function CheckoutLiveSummary({
   selectedAddonIds: string[];
   coupon?: CouponPreview | null;
 }) {
-  const { t, formatToman } = useStorefrontLocale();
+  const { t, formatToman, formatUsd } = useStorefrontLocale();
   const preview = computeCheckoutPreview(product, selectedAddonIds, coupon);
   if (!product) return null;
-  const money = (value: number) =>
-    preview.hasToman
-      ? formatToman(value)
-      : `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const money = (value: number) => (preview.hasToman ? formatToman(value) : formatUsd(value));
   return (
     <div className="space-y-2 rounded-2xl border border-zinc-200 px-3.5 py-3 text-sm dark:border-zinc-800">
-      <div className="flex justify-between gap-3">
-        <span className="text-zinc-500">{t("ترافیک", "Traffic")}</span>
-        <span className="font-medium">{formatBytes(preview.traffic)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-zinc-500">{t("مدت", "Duration")}</span>
-        <span className="font-medium">
-          {preview.finalDays} {t("روز", "days")}
-          {preview.extraDays > 0 ? ` (+${preview.extraDays})` : ""}
-        </span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-zinc-500">{t("کاربر مجاز", "Allowed users")}</span>
-        <span className="font-medium">
-          {preview.finalUsers > 0 ? preview.finalUsers : t("نامحدود", "Unlimited")}
-          {preview.extraUsers > 0 ? ` (+${preview.extraUsers})` : ""}
-        </span>
-      </div>
+      {product.kind === "DIGITAL" ? (
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-500">{t("تحویل", "Delivery")}</span>
+          <span className="font-medium">
+            {product.digitalDeliveryHint === "operator"
+              ? t("توسط اپراتور", "By operator")
+              : t(
+                  "پس از تأیید سفارش به‌صورت خودکار ارسال می‌شود",
+                  "Sent automatically after order confirmation",
+                )}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-between gap-3">
+            <span className="text-zinc-500">{t("ترافیک", "Traffic")}</span>
+            <span className="font-medium">{formatBytes(preview.traffic)}</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-zinc-500">{t("مدت", "Duration")}</span>
+            <span className="font-medium">
+              {preview.finalDays} {t("روز", "days")}
+              {preview.extraDays > 0 ? ` (+${preview.extraDays})` : ""}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-zinc-500">{t("کاربر مجاز", "Allowed users")}</span>
+            <span className="font-medium">
+              {preview.finalUsers > 0 ? preview.finalUsers : t("نامحدود", "Unlimited")}
+              {preview.extraUsers > 0 ? ` (+${preview.extraUsers})` : ""}
+            </span>
+          </div>
+        </>
+      )}
       <div className="flex justify-between gap-3">
         <span className="text-zinc-500">{t("قیمت محصول", "Base price")}</span>
         <span>{money(preview.basePrice)}</span>

@@ -18,6 +18,7 @@ import { useStorefrontLocale } from "./locale";
 import { fadeUp } from "./design";
 import { type StorefrontLayoutId } from "./skins";
 import { PrimaryButton, SecondaryButton } from "./buttons";
+import { WALLET_PAY_BUTTON_TEXT, isWalletPayMethod, openCheckoutPayUrl } from "./payment-methods";
 import type {
   CustomerNotification,
   CustomerOrder,
@@ -211,19 +212,24 @@ export function ProductCard({
       whileHover={{ y: -2 }}
       whileTap={{ scale: 0.99 }}
       transition={{ duration: 0.2 }}
-      className={`store-focus-ring relative min-w-0 w-full cursor-pointer overflow-hidden border bg-[color:var(--store-panel,#fff)] p-5 text-start ${
+      className={`store-focus-ring group relative flex h-full w-full cursor-pointer flex-col border bg-[color:var(--store-panel,#fff)] p-4 text-start transition-[border-color,box-shadow] duration-200 sm:p-5 ${
         layout === "split"
-          ? "rounded-[0.9rem] shadow-none"
+          ? "rounded-[0.9rem] shadow-none hover:shadow-[0_10px_28px_-20px_rgba(15,23,42,0.35)]"
           : layout === "funnel"
             ? "store-glass rounded-[1.1rem]"
-            : "rounded-[1.75rem] shadow-[0_8px_30px_-18px_rgba(15,23,42,0.28)]"
+            : "rounded-[1.75rem] shadow-[0_8px_30px_-18px_rgba(15,23,42,0.28)] hover:shadow-[0_18px_42px_-22px_rgba(15,23,42,0.4)]"
       } ${
         selected
           ? "border-[color:var(--store-primary)] ring-2 ring-[color:var(--store-primary)]/25"
-          : "border-black/[0.04] hover:border-black/[0.08] dark:border-white/[0.06]"
+          : "border-[color:var(--store-panel-border,rgba(0,0,0,0.05))] hover:border-[color:var(--store-primary)]/35"
       }`}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        {product.kind === "DIGITAL" ? (
+          <span className="inline-flex rounded-full bg-violet-500/12 px-2.5 py-1 text-[11px] font-bold text-violet-700 dark:text-violet-300">
+            {t("محصول دیجیتال", "Digital")}
+          </span>
+        ) : null}
         {product.featured ? (
           <span className="inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">
             {t("ویژه", "Featured")}
@@ -239,40 +245,53 @@ export function ProductCard({
             {product.ipLimitOptions[0].label || `${product.ipLimitOptions[0].limitIp} users`}
           </span>
         ) : null}
-        {selected ? (
-          <span className="ms-auto inline-flex rounded-full bg-[color:var(--store-primary)] px-2.5 py-1 text-[11px] font-bold text-white">
-            {t("انتخاب شد", "Selected")}
-          </span>
-        ) : null}
       </div>
-      <div className="text-lg font-bold">{product.name}</div>
+      <div className="text-[1.05rem] font-bold leading-snug sm:text-lg">{product.name}</div>
       {product.description ? (
         <p
-          className={`mt-2 min-w-0 whitespace-pre-line break-words text-sm leading-relaxed text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere] ${
+          className={`mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-[color:var(--store-muted,#71717a)] ${
             selected ? "" : "line-clamp-3"
           }`}
         >
           {product.description}
         </p>
       ) : null}
-      <div className="mt-5 space-y-1">
-        {price ? (
-          <div className="text-2xl font-black text-[color:var(--store-primary)]">{price}</div>
+      <div className="mt-4 flex flex-wrap gap-1.5 text-[11.5px] font-semibold">
+        {product.kind === "DIGITAL" ? (
+          <span className="rounded-lg bg-black/[0.04] px-2.5 py-1.5 text-zinc-600 dark:bg-white/[0.06] dark:text-zinc-300">
+            {product.digitalDeliveryHint === "operator"
+              ? t("تحویل توسط اپراتور", "Delivered by operator")
+              : t("تحویل خودکار پس از تأیید", "Auto-delivered after confirmation")}
+          </span>
         ) : (
-          <div className="text-lg font-bold text-zinc-400">{t("تماس برای قیمت", "Contact for price")}</div>
+          <>
+            <span className="rounded-lg bg-black/[0.04] px-2.5 py-1.5 text-zinc-600 dark:bg-white/[0.06] dark:text-zinc-300">
+              {Number(product.traffic) > 0 ? formatBytes(product.traffic) : t("حجم نامحدود", "Unlimited data")}
+            </span>
+            <span className="rounded-lg bg-black/[0.04] px-2.5 py-1.5 text-zinc-600 dark:bg-white/[0.06] dark:text-zinc-300">
+              {Number(product.durationDays) > 0
+                ? `${product.durationDays} ${t("روز", "days")}`
+                : t("بدون انقضا", "No expiry")}
+            </span>
+          </>
         )}
       </div>
-      <div className="mt-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-        <div className="flex justify-between gap-3">
-          <span>{t("ترافیک", "Traffic")}</span>
-          <span>{formatBytes(product.traffic)}</span>
-        </div>
-        <div className="flex justify-between gap-3">
-          <span>{t("مدت", "Duration")}</span>
-          <span>
-            {product.durationDays} {t("روز", "days")}
-          </span>
-        </div>
+      <div className="mt-auto flex items-end justify-between gap-3 pt-4">
+        {price ? (
+          <div className="text-[1.35rem] font-black leading-none text-[color:var(--store-primary)] sm:text-2xl">{price}</div>
+        ) : (
+          <div className="text-base font-bold text-zinc-400">{t("تماس برای قیمت", "Contact for price")}</div>
+        )}
+        <span
+          aria-hidden
+          className={`inline-flex min-h-[40px] shrink-0 items-center rounded-xl px-3.5 text-[12.5px] font-bold transition-colors duration-200 ${
+            selected
+              ? "bg-[color:var(--store-primary)] text-white"
+              : "bg-[color:var(--store-primary)]/10 text-[color:var(--store-primary)] group-hover:bg-[color:var(--store-primary)] group-hover:text-white"
+          }`}
+        >
+          {selected ? t("انتخاب شد", "Selected") : product.kind === "DIGITAL" ? t("خرید", "Buy") : t("انتخاب", "Choose")}
+        </span>
       </div>
     </motion.button>
   );
@@ -307,10 +326,10 @@ export function PlanPickRow({
           : { boxShadow: "0 0 0 transparent" }
       }
       transition={{ duration: 0.2 }}
-      className={`store-focus-ring relative flex min-h-14 w-full items-center justify-between gap-3 overflow-hidden rounded-[var(--store-radius,1.35rem)] border px-3.5 py-3.5 text-start ${
+      className={`store-focus-ring relative flex min-h-14 w-full cursor-pointer items-center justify-between gap-3 overflow-hidden rounded-[var(--store-radius,1.35rem)] border px-3.5 py-3.5 text-start transition-colors duration-200 ${
         selected
           ? "border-[color:var(--store-primary)] bg-[color:var(--store-primary)]/[0.12] ring-2 ring-[color:var(--store-primary)]/40"
-          : "border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]"
+          : "border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)] hover:border-[color:var(--store-primary)]/40 hover:bg-[color:var(--store-primary)]/[0.04]"
       }`}
     >
       <AnimatePresence>
@@ -374,7 +393,11 @@ export function PlanPickRow({
             </AnimatePresence>
           </div>
           <div className="mt-0.5 text-xs text-zinc-500">
-            {formatBytes(product.traffic)} · {product.durationDays} {t("روز", "days")}
+            {product.kind === "DIGITAL"
+              ? product.digitalDeliveryHint === "operator"
+                ? t("تحویل توسط اپراتور", "Operator delivery")
+                : t("ارسال خودکار پس از تأیید", "Auto send after confirmation")
+              : `${formatBytes(product.traffic)} · ${product.durationDays} ${t("روز", "days")}`}
           </div>
         </div>
       </div>
@@ -487,17 +510,20 @@ export function PendingOrderCard({
   orderStatus,
   invoiceUrl,
   paymentMethod,
+  digital,
 }: {
   trackingCode: string;
   customerToken: string;
   orderStatus: string;
   invoiceUrl?: string | null;
   paymentMethod?: string | null;
+  digital?: { hint: "auto" | "operator"; orderMessage?: string };
   onCopy?: () => void;
   onTrack: () => void;
 }) {
   const { t } = useStorefrontLocale();
   const [copied, setCopied] = useState<"token" | "tracking" | null>(null);
+  const walletPay = isWalletPayMethod(paymentMethod) || /t\.me\/wallet/i.test(String(invoiceUrl || ""));
 
   const handleCopy = async (value: string, kind: "token" | "tracking") => {
     await copyToClipboard(value);
@@ -518,8 +544,7 @@ export function PendingOrderCard({
       <h2 className="text-2xl font-black">{t("سفارش ثبت شد", "Order Submitted")}</h2>
       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
         {invoiceUrl
-          ? String(paymentMethod || "").toUpperCase() === "TELEGRAM_WALLET" ||
-            /t\.me\/wallet/i.test(invoiceUrl)
+          ? walletPay
             ? t(
                 "لینک Wallet Pay آماده است. پرداخت را در ولت تلگرام کامل کنید؛ سرویس فقط بعد از تأیید سرور فعال می‌شود.",
                 "Your Wallet Pay link is ready. Complete payment in Telegram Wallet — delivery happens only after backend verification.",
@@ -536,27 +561,10 @@ export function PendingOrderCard({
       {invoiceUrl ? (
         <button
           type="button"
-          onClick={() => {
-            const walletPay =
-              String(paymentMethod || "").toUpperCase() === "TELEGRAM_WALLET" ||
-              /t\.me\/wallet/i.test(invoiceUrl);
-            const tg = window.Telegram?.WebApp as
-              | { openInvoice?: (u: string) => void; openTelegramLink?: (u: string) => void }
-              | undefined;
-            if (walletPay) {
-              if (tg?.openTelegramLink) tg.openTelegramLink(invoiceUrl);
-              else window.open(invoiceUrl, "_blank", "noopener,noreferrer");
-              return;
-            }
-            if (tg?.openInvoice) tg.openInvoice(invoiceUrl);
-            else window.open(invoiceUrl, "_blank", "noopener,noreferrer");
-          }}
+          onClick={() => openCheckoutPayUrl(invoiceUrl, paymentMethod)}
           className="mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl bg-[color:var(--store-primary,#2563eb)] px-4 text-sm font-semibold text-white"
         >
-          {String(paymentMethod || "").toUpperCase() === "TELEGRAM_WALLET" ||
-          /t\.me\/wallet/i.test(invoiceUrl)
-            ? "👛 Wallet Pay"
-            : t("پرداخت با استارز", "Pay with Stars")}
+          {walletPay ? WALLET_PAY_BUTTON_TEXT : t("پرداخت با استارز", "Pay with Stars")}
         </button>
       ) : null}
 
@@ -570,14 +578,31 @@ export function PendingOrderCard({
               {t("در حال بررسی", "Review in progress")}
             </div>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              {t(
-                "لطفاً صبر کنید — ادمین به‌زودی پرداخت را بررسی می‌کند. این صفحه و داشبورد پس از تأیید به‌روز می‌شوند.",
-                "Hang tight — an admin will check your payment shortly. This page and your dashboard update automatically once approved.",
-              )}
+              {digital
+                ? t(
+                    "پس از تأیید پرداخت، کد یا متن تحویل محصول در صفحه پیگیری نمایش داده می‌شود. لینک پیگیری را نگه دارید.",
+                    "After payment approval, your delivery code or text appears on the tracking page. Keep the tracking link.",
+                  )
+                : t(
+                    "لطفاً صبر کنید — ادمین به‌زودی پرداخت را بررسی می‌کند. این صفحه و داشبورد پس از تأیید به‌روز می‌شوند.",
+                    "Hang tight — an admin will check your payment shortly. This page and your dashboard update automatically once approved.",
+                  )}
             </p>
           </div>
         </div>
       </div>
+      {digital ? (
+        <div className="mt-4 space-y-1.5 rounded-2xl border border-sky-500/25 bg-sky-500/10 p-4 text-sm leading-relaxed text-sky-900 dark:text-sky-100">
+          <div className="font-semibold">
+            {digital.hint === "operator"
+              ? t("تحویل توسط اپراتور", "Delivered by an operator")
+              : t("تحویل خودکار", "Automatic delivery")}
+          </div>
+          {digital.orderMessage?.trim() ? (
+            <p className="whitespace-pre-line">{digital.orderMessage.trim()}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-6 rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950">
         <div className="text-xs uppercase tracking-wide text-zinc-500">
@@ -633,8 +658,15 @@ export function ServiceCard({
   onRenew,
   onHide,
   hiding,
+  canCancel,
+  cancelPending,
+  onRequestCancel,
+  cancelSubmitting,
+  embedded,
 }: {
   service: CustomerService;
+  /** Rendered inside ServiceListItem: no own header/frame (the list row shows them). */
+  embedded?: boolean;
   /** Full subscription URL for QR / open / copy */
   subLink?: string | null;
   onCopy: () => void;
@@ -642,6 +674,12 @@ export function ServiceCard({
   onRenew: () => void;
   onHide?: () => void;
   hiding?: boolean;
+  /** Store allows cancel/refund requests for this service */
+  canCancel?: boolean;
+  /** A cancel request is already pending for this service */
+  cancelPending?: boolean;
+  onRequestCancel?: () => void;
+  cancelSubmitting?: boolean;
 }) {
   const { t, isFa } = useStorefrontLocale();
   const isEylan = service.providerId === "eylan";
@@ -691,11 +729,15 @@ export function ServiceCard({
   if (treatAsEylan) {
     return (
       <motion.div
-        {...fadeUp}
+        {...(embedded ? {} : fadeUp)}
         transition={{ duration: 0.35 }}
-        className="overflow-hidden rounded-2xl border border-violet-200/80 bg-gradient-to-b from-violet-50/80 to-white shadow-[0_8px_30px_rgba(91,33,182,0.06)] dark:border-violet-900/50 dark:from-violet-950/40 dark:to-zinc-950"
+        className={
+          embedded
+            ? "bg-gradient-to-b from-violet-50/60 to-transparent dark:from-violet-950/30"
+            : "overflow-hidden rounded-2xl border border-violet-200/80 bg-gradient-to-b from-violet-50/80 to-white shadow-[0_8px_30px_rgba(91,33,182,0.06)] dark:border-violet-900/50 dark:from-violet-950/40 dark:to-zinc-950"
+        }
       >
-        <div className="flex items-start justify-between gap-3 border-b border-violet-100/80 px-5 py-4 dark:border-violet-900/40">
+        <div className={`${embedded ? "hidden" : "flex"} items-start justify-between gap-3 border-b border-violet-100/80 px-5 py-4 dark:border-violet-900/40`}>
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="truncate text-base font-semibold tracking-tight">
@@ -705,7 +747,7 @@ export function ServiceCard({
                 Eylan
               </span>
             </div>
-            <div className="mt-1 min-w-0 break-all font-mono text-xs text-zinc-500 [overflow-wrap:anywhere]" dir="ltr">
+            <div className="mt-1 font-mono text-xs text-zinc-500" dir="ltr">
               {service.email}
             </div>
             {(isFa ? planLabelFa : service.planLabel) ? (
@@ -730,6 +772,25 @@ export function ServiceCard({
             ) : null}
           </div>
         </div>
+
+        {canCancel ? (
+          <div className="border-b border-violet-100/80 px-5 py-2.5 dark:border-violet-900/40">
+            {cancelPending ? (
+              <span className="inline-flex items-center rounded-lg bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                {t("درخواست لغو ثبت شد", "Cancellation requested")}
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={cancelSubmitting}
+                onClick={onRequestCancel}
+                className="text-[11px] font-semibold text-rose-500 transition hover:text-rose-600 disabled:opacity-50"
+              >
+                {t("درخواست لغو / بازگشت وجه", "Request cancel / refund")}
+              </button>
+            )}
+          </div>
+        ) : null}
 
         <div className="space-y-3 px-5 py-4">
           <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
@@ -820,7 +881,7 @@ export function ServiceCard({
                       <X size={16} />
                     </button>
                   </div>
-                  <div className="mx-auto flex w-fit rounded-2xl bg-white p-3 ring-1 ring-zinc-200">
+                  <div className="mx-auto flex w-fit rounded-2xl bg-white p-3 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-700">
                     <QRCode value={qrValue} size={200} />
                   </div>
                   <p className="mt-3 break-all text-center font-mono text-[11px] text-zinc-500" dir="ltr">
@@ -837,11 +898,15 @@ export function ServiceCard({
 
   return (
     <motion.div
-      {...fadeUp}
+      {...(embedded ? {} : fadeUp)}
       transition={{ duration: 0.35 }}
-      className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-900"
+      className={
+        embedded
+          ? ""
+          : "overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-900"
+      }
     >
-      <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+      <div className={`${embedded ? "hidden" : "flex"} items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800`}>
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="truncate text-base font-semibold tracking-tight">
@@ -869,6 +934,25 @@ export function ServiceCard({
           ) : null}
         </div>
       </div>
+
+      {canCancel ? (
+        <div className="border-b border-zinc-100 px-5 py-2.5 dark:border-zinc-800">
+          {cancelPending ? (
+            <span className="inline-flex items-center rounded-lg bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {t("درخواست لغو ثبت شد", "Cancellation requested")}
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={cancelSubmitting}
+              onClick={onRequestCancel}
+              className="text-[11px] font-semibold text-rose-500 transition hover:text-rose-600 disabled:opacity-50"
+            >
+              {t("درخواست لغو / بازگشت وجه", "Request cancel / refund")}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <div className="space-y-3 px-5 py-4">
         <div className="flex items-end justify-between gap-3">
@@ -948,7 +1032,7 @@ export function ServiceCard({
                     <X size={16} />
                   </button>
                 </div>
-                <div className="mx-auto flex w-fit rounded-2xl bg-white p-3 ring-1 ring-zinc-200">
+                <div className="mx-auto flex w-fit rounded-2xl bg-white p-3 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-700">
                   <QRCode value={qrValue} size={200} />
                 </div>
                 <p className="mt-3 break-all text-center font-mono text-[11px] text-zinc-500" dir="ltr">
@@ -960,6 +1044,144 @@ export function ServiceCard({
           )
         : null}
     </motion.div>
+  );
+}
+
+type ServiceCardProps = Parameters<typeof ServiceCard>[0];
+
+/** Collapsible list row for the portal services list; expands into the full ServiceCard body. */
+export function ServiceListItem({
+  defaultOpen = false,
+  ...props
+}: Omit<ServiceCardProps, "embedded"> & { defaultOpen?: boolean }) {
+  const { t } = useStorefrontLocale();
+  const [open, setOpen] = useState(defaultOpen);
+  const { service, onHide, hiding } = props;
+  const used = Number(service.up) + Number(service.down);
+  const total = Number(service.total);
+  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+  const remaining = total > 0 ? Math.max(total - used, 0) : null;
+  const isEylan =
+    service.providerId === "eylan" ||
+    service.deliveryHint === "eylan_download" ||
+    String(service.id || "").startsWith("eylan:");
+  const isPasarguard =
+    !isEylan && (service.providerId === "pasarguard" || String(service.id || "").startsWith("pasarguard:"));
+  const title = (isEylan ? service.productName : null) || service.remark || service.productName || service.email;
+  const bad = service.status === "expired" || service.status === "depleted";
+  const off = service.status === "disabled";
+  const dot = bad ? "bg-rose-500" : off ? "bg-zinc-400" : "bg-emerald-500";
+  const chip = bad
+    ? "bg-rose-500/12 text-rose-700 dark:text-rose-400"
+    : off
+      ? "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400"
+      : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400";
+  const statusLabel =
+    service.status === "expired"
+      ? t("منقضی", "Expired")
+      : service.status === "depleted"
+        ? t("حجم تمام", "Traffic ended")
+        : off
+          ? t("غیرفعال", "Disabled")
+          : service.unused || service.status === "pending"
+            ? t("آمادۀ اتصال", "Ready")
+            : t("فعال", "Active");
+  const bar = pct >= 90 ? "bg-rose-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500";
+  const initial = String(title || "?").trim().slice(0, 1).toUpperCase();
+
+  return (
+    <div
+      data-open={open ? "true" : undefined}
+      className={`store-card overflow-hidden rounded-[var(--store-radius,1.25rem)] border transition-[border-color,box-shadow] duration-200 ${
+        open
+          ? "shadow-[0_16px_40px_-26px_rgba(15,23,42,0.45)]"
+          : "hover:shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)]"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="store-focus-ring flex min-h-[68px] w-full cursor-pointer items-center gap-3 px-4 py-3 text-start sm:px-5"
+      >
+        <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--store-primary)]/10 text-[15px] font-black text-[color:var(--store-primary)]">
+          {initial}
+          <span className={`absolute -bottom-0.5 -end-0.5 h-3 w-3 rounded-full ring-2 ring-white dark:ring-zinc-900 ${dot}`} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[14.5px] font-bold tracking-tight text-zinc-900 dark:text-zinc-50">{title}</span>
+            {isEylan ? (
+              <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-px text-[9.5px] font-bold uppercase text-violet-700 dark:text-violet-300">
+                Eylan
+              </span>
+            ) : isPasarguard ? (
+              <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-px text-[9.5px] font-bold text-amber-700 dark:text-amber-300">
+                Pasarguard
+              </span>
+            ) : (
+              <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-px text-[9.5px] font-bold text-sky-700 dark:text-sky-300">
+                3x-ui
+              </span>
+            )}
+          </span>
+          <span className="mt-1 flex items-center gap-2 text-[11.5px] text-zinc-500">
+            <span className="truncate">
+              {remaining == null ? t("حجم نامحدود", "Unlimited data") : `${formatBytes(remaining)} ${t("باقی", "left")}`}
+              {" · "}
+              {formatExpiry(service.expiryTime)}
+            </span>
+          </span>
+          {total > 0 ? (
+            <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+              <span className={`block h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
+            </span>
+          ) : null}
+        </span>
+        <span className={`hidden shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-bold sm:inline-flex ${chip}`}>
+          {statusLabel}
+        </span>
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          aria-hidden
+          className={`shrink-0 text-zinc-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            key="body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.24, ease: "easeOut" }}
+            className="overflow-hidden border-t border-black/[0.05] dark:border-white/[0.06]"
+          >
+            <div className="flex items-center justify-between gap-2 px-5 pt-3 sm:hidden">
+              <span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${chip}`}>{statusLabel}</span>
+            </div>
+            <ServiceCard {...props} onHide={undefined} embedded />
+            {onHide ? (
+              <div className="flex justify-end border-t border-black/[0.05] px-5 py-2 dark:border-white/[0.06]">
+                <button
+                  type="button"
+                  disabled={hiding}
+                  onClick={onHide}
+                  className="store-focus-ring min-h-[40px] cursor-pointer rounded-xl px-3 text-[11.5px] font-semibold text-zinc-400 transition-colors duration-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-950/30"
+                >
+                  {t("حذف از لیست من", "Remove from my list")}
+                </button>
+              </div>
+            ) : null}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -991,7 +1213,7 @@ export function OrderCard({
   const amount = isToman ? formatToman(order.amount) : formatUsd(order.amount);
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-200/90 bg-white p-4 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
+    <div className="rounded-2xl border border-zinc-200/90 bg-white p-4 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-semibold tracking-tight">{order.productName}</div>
@@ -1002,9 +1224,7 @@ export function OrderCard({
             <span>·</span>
             <span className="font-medium text-zinc-700 dark:text-zinc-300">{amount}</span>
           </div>
-          <div className="mt-2 break-all font-mono text-xs text-zinc-400 [overflow-wrap:anywhere]">
-            {order.trackingCode}
-          </div>
+          <div className="mt-2 font-mono text-xs text-zinc-400">{order.trackingCode}</div>
         </div>
         <div className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${tone}`}>
           {label}
