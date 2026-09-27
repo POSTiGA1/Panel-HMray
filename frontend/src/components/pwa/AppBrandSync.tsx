@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useAppBrand } from "@/hooks/useAppBrand";
 import { PANEL_BRAND } from "@/lib/panel-brand";
+import { brandForeground } from "@/lib/app-brand";
 
 const DEFAULT_TITLES = [PANEL_BRAND.title, PANEL_BRAND.titleFa, PANEL_BRAND.name, PANEL_BRAND.nameFa];
 
@@ -28,7 +29,20 @@ function upsertMeta(name: string, content: string) {
 
 /** Rewrites the tab title and iOS home-screen metadata to the agency brand. */
 export function AppBrandSync() {
-  const { brand, displayName } = useAppBrand();
+  const { brand, ready, displayName } = useAppBrand();
+
+  useEffect(() => {
+    if (!ready) return;
+    const root = document.documentElement.style;
+    const fg = brand.custom ? brandForeground(brand.backgroundColor) : "";
+    if (fg) {
+      root.setProperty("--brand-bg", brand.backgroundColor);
+      root.setProperty("--brand-fg", fg);
+    } else {
+      root.removeProperty("--brand-bg");
+      root.removeProperty("--brand-fg");
+    }
+  }, [ready, brand.custom, brand.backgroundColor]);
 
   useEffect(() => {
     if (!brand.custom) return;

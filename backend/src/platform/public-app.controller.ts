@@ -84,7 +84,7 @@ export class PublicAppController {
       const name = str(raw.name) || DEFAULT_BRAND.name;
       return {
         name,
-        nameFa: str(raw.nameFa) || name,
+        nameFa: str(raw.nameFa) || (str(raw.name) ? name : DEFAULT_BRAND.nameFa),
         shortName: str(raw.shortName, 24) || name.slice(0, 24),
         logo: safeUrl(raw.logo, ''),
         iconBg: str(raw.iconBg, 20) || DEFAULT_BRAND.iconBg,

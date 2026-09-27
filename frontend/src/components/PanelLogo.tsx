@@ -56,9 +56,15 @@ export function PanelBrandName({ className }: { className?: string }) {
 export function PanelBootSplash() {
   const { ready, displayName } = useAppBrand();
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-zinc-50 dark:bg-zinc-950">
-      <PanelLogo size={72} priority className="animate-pulse motion-reduce:animate-none" />
-      <p className={clsx("text-sm text-zinc-500 dark:text-zinc-400", !ready && "invisible")}>{displayName}</p>
+    <div className="hm-brand-surface fixed inset-0 flex flex-col items-center justify-center gap-7">
+      <div className="hm-boot-mark relative flex h-32 w-32 items-center justify-center">
+        <span className="hm-boot-track absolute inset-0 rounded-full" aria-hidden />
+        <span className="hm-boot-ring absolute inset-0 rounded-full" aria-hidden />
+        <span className="hm-boot-logo flex items-center justify-center">
+          <PanelLogo size={68} priority />
+        </span>
+      </div>
+      <p className={clsx("text-base font-semibold tracking-tight", !ready && "invisible")}>{displayName}</p>
     </div>
   );
 }

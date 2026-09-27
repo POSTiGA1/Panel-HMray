@@ -53,7 +53,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="pwa-safe-y flex min-h-dvh items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-4">
+    <div className="pwa-safe-y pwa-fill flex min-h-dvh items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 flex h-20 w-20 items-center justify-center">

@@ -2,6 +2,17 @@ import { PANEL_BRAND } from "./panel-brand";
 
 export const APP_BRAND_STORAGE_KEY = "hm-app-brand";
 export const APP_VERSION_STORAGE_KEY = "hm-app-version";
+/** Set once the launch splash has played in this app session (sessionStorage). */
+export const BOOT_SPLASH_SESSION_KEY = "hm-boot-splash";
+
+/** Readable foreground for text drawn on the brand background. */
+export function brandForeground(bg: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(bg || "");
+  if (!m) return "";
+  const n = parseInt(m[1], 16);
+  const l = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return l > 0.6 ? "#1e293b" : "#f1f5f9";
+}
 
 export type AppBrand = {
   name: string;
