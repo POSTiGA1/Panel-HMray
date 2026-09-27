@@ -1371,6 +1371,8 @@ model PaygSettings {
   currency                      String?
   /// 0 = unlimited open PAYG services per customer
   maxSubscriptionsPerCustomer   Int      @default(0)
+  /// Debit one unit (1 GB / 1 hour) from the wallet at activation
+  chargeActivationUnit          Boolean  @default(false)
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
 
