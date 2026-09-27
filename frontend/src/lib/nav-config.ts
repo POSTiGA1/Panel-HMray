@@ -4,7 +4,6 @@ import {
   UserCog,
   Server,
   Wallet,
-  Import,
   Settings,
   Activity,
   Trash2,
@@ -91,7 +90,6 @@ export const CORE_NAV_SECTIONS: CoreNavSection[] = [
     id: "tools",
     labelKey: "nav.sectionTools",
     items: [
-      { href: "/migration", icon: Import, labelKey: "nav.migration", roles: ["SUPER_ADMIN"] },
       { href: "/cleanup", icon: Trash2, labelKey: "nav.cleanup", roles: ["SUPER_ADMIN"] },
       { href: "/diagnostics", icon: Activity, labelKey: "nav.diagnostics", roles: ["SUPER_ADMIN"] },
     ],
@@ -195,7 +193,6 @@ const SECTION_HREF_ORDER: Record<string, string[]> = {
   tools: [
     "/premium/monitoring",
     "/premium/backups",
-    "/migration",
     "/cleanup",
     "/premium/jobs",
     "/diagnostics",

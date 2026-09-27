@@ -9,7 +9,6 @@ import { ClientsModule } from './clients/clients.module';
 import { PanelsModule } from './panels/panels.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { StatsModule } from './stats/stats.module';
-import { MigrationModule } from './migration/migration.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SettingsModule } from './settings/settings.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -45,7 +44,6 @@ const COMMUNITY_IMPORTS = [
   PanelsModule,
   TrafficModule,
   StatsModule,
-  MigrationModule,
   SettingsModule,
   SubscriptionsModule,
   InboundsModule,

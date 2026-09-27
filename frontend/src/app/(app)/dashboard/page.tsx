@@ -56,6 +56,57 @@ function Kpi({
   );
 }
 
+type RevenueBucket = { toman: number; usd: number };
+type RevenueSummary = {
+  recharge: RevenueBucket;
+  store: RevenueBucket;
+  digital: RevenueBucket;
+  wallet: RevenueBucket;
+  total: RevenueBucket;
+};
+
+function RevenueCard({ revenue }: { revenue?: RevenueSummary }) {
+  const t = useT();
+  const money = (b?: RevenueBucket) => {
+    const toman = Number(b?.toman || 0);
+    const usd = Number(b?.usd || 0);
+    const parts: string[] = [];
+    if (toman > 0 || usd <= 0) parts.push(t("dashboard.revenueToman", { n: Math.round(toman).toLocaleString() }));
+    if (usd > 0) parts.push(t("dashboard.revenueUsd", { n: usd.toLocaleString(undefined, { maximumFractionDigits: 2 }) }));
+    return parts.join(" · ");
+  };
+  const rows: { key: keyof RevenueSummary; label: string; dot: string }[] = [
+    { key: "recharge", label: t("dashboard.revenueRecharge"), dot: "bg-amber-400" },
+    { key: "store", label: t("dashboard.revenueStore"), dot: "bg-blue-400" },
+    { key: "digital", label: t("dashboard.revenueDigital"), dot: "bg-violet-400" },
+    { key: "wallet", label: t("dashboard.revenueWallet"), dot: "bg-emerald-400" },
+  ];
+  return (
+    <Card className="border-emerald-500/25 bg-gradient-to-br from-emerald-500/[0.06] to-transparent sm:col-span-2">
+      <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+        <DollarSign size={16} className="text-emerald-400" /> {t("dashboard.revenueTotal")}
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50" dir="ltr">
+        {money(revenue?.total)}
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+              <span className={`h-1.5 w-1.5 rounded-full ${r.dot}`} />
+              {r.label}
+            </span>
+            <span className="font-medium tabular-nums text-zinc-700 dark:text-zinc-200" dir="ltr">
+              {money(revenue?.[r.key])}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-zinc-400">{t("dashboard.revenueHint")}</p>
+    </Card>
+  );
+}
+
 function MetricBar({ label, pct }: { label: string; pct: number }) {
   const color = pct > 85 ? "bg-red-500" : pct > 65 ? "bg-amber-500" : "bg-emerald-500";
   return (
@@ -226,15 +277,13 @@ function SuperDashboard() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={Server} tone="text-amber-400" label={t("nav.panels")} value={o.panels.total}
           parts={[{ label: t("common.online"), value: o.panels.online, tone: "text-emerald-400" }, { label: t("common.offline"), value: o.panels.offline, tone: "text-red-400" }]} />
         <Kpi icon={UserCog} tone="text-emerald-400" label={t("nav.admins")} value={o.admins.total}
           parts={[{ label: t("common.active"), value: o.admins.active, tone: "text-emerald-400" }, { label: t("common.disabled"), value: o.admins.disabled ?? o.admins.suspended ?? 0, tone: "text-red-400" }]} />
         <Kpi icon={Users} tone="text-blue-400" label={t("nav.clients")} value={o.clients.total}
           parts={[{ label: t("common.active"), value: o.clients.active, tone: "text-emerald-400" }, { label: t("common.expired"), value: o.clients.expired, tone: "text-red-400" }]} />
-        <Kpi icon={Activity} tone="text-cyan-400" label={t("dashboard.todaysUsage")} value={o.usage?.today != null ? formatBytes(Number(o.usage.today)) : t("dashboard.unknown")} />
-        <Kpi icon={CalendarDays} tone="text-purple-400" label={t("dashboard.monthlyUsage")} value={o.usage?.monthly != null ? formatBytes(Number(o.usage.monthly)) : t("dashboard.unknown")} />
 
         <Card className="border-red-500/30 bg-red-500/5">
           <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
@@ -242,9 +291,13 @@ function SuperDashboard() {
           </div>
           <div className="mt-2 flex items-end justify-between">
             <div className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{o.clients.cleanupCandidates ?? 0}</div>
-            <button onClick={() => router.push('/cleanup')} className="text-xs font-semibold text-red-500 hover:text-red-400 hover:underline">{t("dashboard.cleanUp")}</button>
+            <button onClick={() => router.push('/cleanup')} className="min-h-11 cursor-pointer px-1 text-xs font-semibold text-red-500 hover:text-red-400 hover:underline">{t("dashboard.cleanUp")}</button>
           </div>
         </Card>
+
+        <Kpi icon={Activity} tone="text-cyan-400" label={t("dashboard.todaysUsage")} value={o.usage?.today != null ? formatBytes(Number(o.usage.today)) : t("dashboard.unknown")} />
+        <Kpi icon={CalendarDays} tone="text-purple-400" label={t("dashboard.monthlyUsage")} value={o.usage?.monthly != null ? formatBytes(Number(o.usage.monthly)) : t("dashboard.unknown")} />
+        <RevenueCard revenue={o.revenue} />
       </div>
 
       {/* Traffic chart with range toggle */}

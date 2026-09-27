@@ -89,12 +89,11 @@ export class AdminQuotaService implements OnModuleInit {
 
   private async repairPastAdminDeductions() {
     const key = 'traffic.totalAssignedDeductionRepair.v1';
-    let cutoff: Date;
+    const cutoff = new Date();
     try {
-      const created = await this.prisma.systemSetting.create({
-        data: { key, value: JSON.stringify(Date.now()) },
+      await this.prisma.systemSetting.create({
+        data: { key, value: JSON.stringify(cutoff.getTime()) },
       });
-      cutoff = created.createdAt;
     } catch {
       return;
     }

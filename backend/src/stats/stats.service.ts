@@ -20,6 +20,104 @@ export class StatsService {
     private adminQuota: AdminQuotaService,
   ) {}
 
+  /**
+   * Aggregate super-admin income, split per currency (never mixed):
+   * admin recharge + own store orders (VPN / digital) + wallet top-ups.
+   * Wallet-paid orders and PAYG usage are excluded — that money is already
+   * counted once as a wallet deposit.
+   */
+  private async aggregateRevenue() {
+    type Bucket = { toman: number; usd: number };
+    const empty = (): Bucket => ({ toman: 0, usd: 0 });
+    const add = (b: Bucket, amount: number, currency?: string | null) => {
+      const n = Number(amount || 0);
+      if (!Number.isFinite(n) || n <= 0) return;
+      const c = String(currency || '').toUpperCase();
+      if (['TOMAN', 'IRT', 'IRR', 'TMN'].includes(c)) b.toman += n;
+      else b.usd += n;
+    };
+    const result = {
+      recharge: empty(),
+      store: empty(),
+      digital: empty(),
+      wallet: empty(),
+      total: empty(),
+    };
+    const db = this.prisma as any;
+
+    try {
+      const supers = await this.prisma.admin.findMany({
+        where: { role: 'SUPER_ADMIN' },
+        select: { id: true },
+      });
+      const superIds = supers.map((a) => a.id);
+
+      const [recharge, orders, deposits] = await Promise.all([
+        db.adminRechargeOrder
+          ?.groupBy({
+            by: ['currency'],
+            where: { status: 'APPROVED' },
+            _sum: { amount: true },
+          })
+          .catch(() => []) ?? [],
+        superIds.length && db.storeOrder
+          ? db.storeOrder
+              .findMany({
+                where: {
+                  store: { adminId: { in: superIds } },
+                  status: { in: ['ACTIVE', 'RENEWED'] },
+                  isTest: false,
+                  OR: [
+                    { payment: null },
+                    {
+                      payment: {
+                        status: 'APPROVED',
+                        method: { not: 'WALLET' },
+                      },
+                    },
+                  ],
+                },
+                select: {
+                  amount: true,
+                  currency: true,
+                  product: { select: { kind: true } },
+                },
+              })
+              .catch(() => [])
+          : [],
+        superIds.length && db.storeWalletDeposit
+          ? db.storeWalletDeposit
+              .groupBy({
+                by: ['currency'],
+                where: { adminId: { in: superIds }, status: 'APPROVED' },
+                _sum: { amount: true },
+              })
+              .catch(() => [])
+          : [],
+      ]);
+
+      for (const row of recharge as any[]) {
+        add(result.recharge, row._sum?.amount, row.currency);
+      }
+      for (const row of orders as any[]) {
+        const kind = String(row.product?.kind || 'VPN').toUpperCase();
+        if (kind === 'PAYG') continue;
+        add(kind === 'DIGITAL' ? result.digital : result.store, row.amount, row.currency);
+      }
+      for (const row of deposits as any[]) {
+        add(result.wallet, row._sum?.amount, row.currency);
+      }
+    } catch {
+      /* commerce tables may be absent on Community-only installs */
+    }
+
+    for (const key of ['recharge', 'store', 'digital', 'wallet'] as const) {
+      result.total.toman += result[key].toman;
+      result.total.usd += result[key].usd;
+    }
+    return result;
+  }
+
   /** Super-admin KPI cards. */
   async overview() {
     const now = Date.now();
@@ -117,7 +215,10 @@ export class StatsService {
       }
     }
 
+    const revenue = await this.aggregateRevenue();
+
     return {
+      revenue,
       panels: {
         total: panelsTotal,
         online: panelsOnline,
