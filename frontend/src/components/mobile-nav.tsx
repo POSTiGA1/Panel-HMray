@@ -1,23 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { ThemeToggle } from "./ThemeToggle";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 import { useT } from "@/i18n";
-import { PanelLogo } from "@/components/PanelLogo";
-import { PANEL_BRAND } from "@/lib/panel-brand";
-import { useLocale } from "@/i18n";
+import { PanelBrandName, PanelLogo } from "@/components/PanelLogo";
 import { useAppNav } from "@/hooks/useAppNav";
 import { NavSectionBlock } from "@/components/app-nav";
+import { useMobileNavDrawer } from "@/store/mobileNav";
 
 export function MobileNav() {
   const t = useT();
-  const { locale } = useLocale();
-  const [isOpen, setIsOpen] = useState(false);
+  const isOpen = useMobileNavDrawer((s) => s.open);
+  const setIsOpen = useMobileNavDrawer((s) => s.setOpen);
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, setIsOpen]);
   const router = useRouter();
   const admin = useAuth((s) => s.admin);
   const logout = useAuth((s) => s.logout);
@@ -25,12 +33,10 @@ export function MobileNav() {
 
   return (
     <>
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+      <header className="pwa-safe-top flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
         <div className="flex min-w-0 items-center gap-2.5">
           <PanelLogo size={26} />
-          <span className="truncate text-sm font-semibold tracking-tight text-slate-800 dark:text-zinc-100">
-            {locale === "fa" ? PANEL_BRAND.nameFa : PANEL_BRAND.name}
-          </span>
+          <PanelBrandName className="truncate text-sm font-semibold tracking-tight text-slate-800 dark:text-zinc-100" />
         </div>
         <button
           type="button"
@@ -47,7 +53,7 @@ export function MobileNav() {
 
       {isOpen ? (
         <div className="fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm md:hidden">
-          <div className="flex h-full w-[min(20rem,88vw)] flex-col bg-white dark:bg-zinc-950">
+          <div className="pwa-safe-y flex h-full w-[min(20rem,88vw)] flex-col bg-white dark:bg-zinc-950">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4 dark:border-zinc-800">
               <span className="text-sm font-semibold text-slate-800 dark:text-zinc-100">{t("nav.menu")}</span>
               <button

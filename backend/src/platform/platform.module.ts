@@ -14,11 +14,17 @@ import { FeatureEntitlementService } from './feature-entitlement.service';
 import { PremiumGuard } from '../common/guards/premium.guard';
 import { PluginsModule } from '../plugins/plugins.module';
 import { PremiumModulesListController } from '../premium-modules/premium-modules-list.controller';
+import { PublicAppController } from './public-app.controller';
 
 @Global()
 @Module({
   imports: [PrismaModule, SettingsModule, forwardRef(() => PluginsModule)],
-  controllers: [PlatformController, PremiumAssetsController, PremiumModulesListController],
+  controllers: [
+    PlatformController,
+    PremiumAssetsController,
+    PremiumModulesListController,
+    PublicAppController,
+  ],
   providers: [
     LicenseManagerService,
     FeatureManagerService,

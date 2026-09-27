@@ -3,6 +3,26 @@
     "name": "Panel",
     "premium": "Premium"
   },
+  "pwa": {
+    "bottomNav": "Main navigation",
+    "tabDashboard": "Home",
+    "tabClients": "Clients",
+    "tabAdmins": "Admins",
+    "tabRecharge": "Credit",
+    "tabTraffic": "Traffic",
+    "tabStore": "Store",
+    "tabMenu": "Menu",
+    "installTitle": "Install {name}",
+    "installBody": "Add the panel to your home screen so it opens instantly, full screen.",
+    "installAction": "Install",
+    "installLater": "Later",
+    "iosTitle": "Add to Home Screen",
+    "iosStep1": "Tap the Share button in Safari's toolbar",
+    "iosStep2": "Choose \"Add to Home Screen\"",
+    "iosStep3": "Tap \"Add\" to create the app icon",
+    "iosGotIt": "Got it",
+    "close": "Close"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "admins": "Admins",

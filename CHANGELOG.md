@@ -8,6 +8,16 @@ All notable changes to this project will be documented in this file.
 3. Update this `CHANGELOG.md` file by adding a new section at the top for the new version.
 4. Create a GitHub Release with the new version tag (e.g., `v1.5.3`). This triggers the CI/CD pipeline to build and publish the new Docker image to GHCR.
 
+## [2.4.0] - 2026-09-27
+
+### Added
+- **Installable app (PWA) for Android and iOS:** web manifest (`/api/public/manifest.webmanifest`), service worker with app-shell caching and an offline page, iOS home-screen metadata, safe-area aware shell.
+- **Auto-update on relaunch:** the app compares panel + premium versions (`/api/public/app-version`) on launch and when resumed, clears cached assets and reloads once when a new version is deployed. Premium runtime assets are now versioned.
+- **Installed-app bottom navigation:** minimal tab bar (shown only in the installed app on mobile); the top bar and hamburger menu stay.
+- **Install prompt:** one-tap install on Android, guided Add to Home Screen sheet on iOS.
+- **Agency brand everywhere:** the Premium reseller-menu logo and name (`/api/public/app-brand`) now brand the login page, sidebar, mobile header, tab title and the app icon.
+- **Faster start:** small dashboard/license summaries are persisted for instant first paint; login form works with iOS Keychain / Android password managers.
+
 ## [2.3.3] - 2026-09-20
 
 ### Added

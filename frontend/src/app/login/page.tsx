@@ -10,6 +10,7 @@ import { useT, useLocale } from "@/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { PanelLogo } from "@/components/PanelLogo";
 import { PANEL_BRAND } from "@/lib/panel-brand";
+import { useAppBrand } from "@/hooks/useAppBrand";
 
 export default function LoginPage() {
   const t = useT();
@@ -22,6 +23,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const { brand, ready: brandReady, displayName: brandName } = useAppBrand();
 
   useEffect(() => subscribeAuthHydration(() => setHydrated(true)), []);
 
@@ -51,30 +53,40 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-4">
+    <div className="pwa-safe-y flex min-h-dvh items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 flex h-20 w-20 items-center justify-center">
             <PanelLogo size={80} priority />
           </div>
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-            {locale === "fa" ? PANEL_BRAND.nameFa : PANEL_BRAND.name}
+          <h1 className={`text-xl font-semibold text-zinc-900 dark:text-zinc-50 ${brandReady ? "" : "invisible"}`}>
+            {brandName}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {locale === "fa" ? PANEL_BRAND.descriptionFa : PANEL_BRAND.description}
-          </p>
+          {brandReady && !brand.custom ? (
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {locale === "fa" ? PANEL_BRAND.descriptionFa : PANEL_BRAND.description}
+            </p>
+          ) : null}
           <div className="mt-4">
             <LocaleSwitcher />
           </div>
         </div>
 
         <form
+          method="post"
+          action="/login"
+          autoComplete="on"
           onSubmit={onSubmit}
           className="space-y-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-6"
         >
           <div>
-            <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">{t("login.username")}</label>
+            <label htmlFor="login-username" className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">{t("login.username")}</label>
             <input
+              id="login-username"
+              name="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder={t("login.usernamePlaceholder")}
@@ -84,9 +96,11 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">{t("login.password")}</label>
+            <label htmlFor="login-password" className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">{t("login.password")}</label>
             <div className="relative">
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

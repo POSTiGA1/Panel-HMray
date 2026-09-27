@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 /** Default branding for the admin panel UI only (not storefront / portal). */
 export const PANEL_BRAND = {
@@ -12,12 +12,36 @@ export const PANEL_BRAND = {
   logoPath: "/brand/hmpanel-logo.png",
 } as const;
 
+export const PANEL_MANIFEST_URL = "/api/public/manifest.webmanifest";
+
 export const PANEL_METADATA: Metadata = {
   title: PANEL_BRAND.title,
   description: PANEL_BRAND.description,
-  icons: {
-    icon: [{ url: PANEL_BRAND.logoPath, type: "image/png" }],
-    shortcut: PANEL_BRAND.logoPath,
-    apple: PANEL_BRAND.logoPath,
+  manifest: PANEL_MANIFEST_URL,
+  applicationName: PANEL_BRAND.name,
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: PANEL_BRAND.name,
   },
+  formatDetection: { telephone: false },
+  other: { "mobile-web-app-capable": "yes" },
+  icons: {
+    icon: [
+      { url: PANEL_BRAND.logoPath, type: "image/png" },
+      { url: "/pwa/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: PANEL_BRAND.logoPath,
+    apple: [{ url: "/pwa/apple-touch-180.png", sizes: "180x180" }],
+  },
+};
+
+export const PANEL_VIEWPORT: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
+    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+  ],
 };

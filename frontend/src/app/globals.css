@@ -72,6 +72,50 @@ html.locale-en body {
   padding-top: env(safe-area-inset-top, 20px);
 }
 
+/* Installed-app (PWA) shell: status bar overlays content with viewport-fit=cover. */
+.pwa-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+.pwa-safe-y {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pwa-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pwa-bottom-nav {
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+}
+.pwa-install-card {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (max-width: 767px) {
+  html[data-standalone] .pwa-main {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+}
+@media (min-width: 768px) {
+  html[data-standalone] aside {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+html[data-standalone],
+html[data-standalone] body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html[data-standalone] nav,
+html[data-standalone] header {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+@keyframes pwa-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @layer utilities {
   .hide-scrollbar::-webkit-scrollbar {
     display: none;

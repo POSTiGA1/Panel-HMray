@@ -3,6 +3,26 @@
     "name": "پنل",
     "premium": "پرمیوم"
   },
+  "pwa": {
+    "bottomNav": "ناوبری اصلی",
+    "tabDashboard": "خانه",
+    "tabClients": "کلاینت‌ها",
+    "tabAdmins": "ادمین‌ها",
+    "tabRecharge": "اعتبار",
+    "tabTraffic": "ترافیک",
+    "tabStore": "فروشگاه",
+    "tabMenu": "منو",
+    "installTitle": "نصب اپلیکیشن {name}",
+    "installBody": "پنل را روی صفحه اصلی گوشی اضافه کنید تا سریع‌تر و تمام‌صفحه باز شود.",
+    "installAction": "نصب",
+    "installLater": "بعداً",
+    "iosTitle": "افزودن به صفحه اصلی",
+    "iosStep1": "در نوار Safari روی دکمه اشتراک‌گذاری بزنید",
+    "iosStep2": "گزینه «Add to Home Screen» را انتخاب کنید",
+    "iosStep3": "روی «Add» بزنید تا آیکون اپ ساخته شود",
+    "iosGotIt": "متوجه شدم",
+    "close": "بستن"
+  },
   "nav": {
     "dashboard": "داشبورد",
     "admins": "ادمین‌ها",

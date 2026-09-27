@@ -63,14 +63,18 @@ function isPremiumRoute(pathname: string) {
   return pathname.startsWith("/premium") || pathname.startsWith("/settings/premium");
 }
 
+function versionQuery(version?: string | null) {
+  return version ? `?v=${encodeURIComponent(version)}` : "";
+}
+
 /** Premium-only Tailwind utilities — must not load on free panel pages. */
-function injectPremiumStyles() {
+function injectPremiumStyles(version?: string | null) {
   if (typeof document === "undefined") return;
   if (document.getElementById(PREMIUM_STYLE_ID)) return;
   const link = document.createElement("link");
   link.id = PREMIUM_STYLE_ID;
   link.rel = "stylesheet";
-  link.href = "/api/platform/premium-assets/frontend/premium-runtime.css";
+  link.href = `/api/platform/premium-assets/frontend/premium-runtime.css${versionQuery(version)}`;
   document.head.appendChild(link);
 }
 
@@ -134,6 +138,7 @@ export function PremiumBootstrap() {
     state?.status !== "community" &&
     state?.mode !== "disabled" &&
     state?.bundle?.installed;
+  const bundleVersion: string | null = state?.bundle?.version ?? null;
 
   const { data: premiumModules } = usePremiumModules({ enabled: isPremium });
 
@@ -144,7 +149,7 @@ export function PremiumBootstrap() {
     patchPremiumModulesFetch();
 
     const script = document.createElement("script");
-    script.src = `/api/platform/premium-assets/frontend/premium-runtime.js`;
+    script.src = `/api/platform/premium-assets/frontend/premium-runtime.js${versionQuery(bundleVersion)}`;
     script.async = true;
     script.onload = async () => {
       // Re-expose after runtime load so late require() of hmpanel/i18n always hits host module.
@@ -175,7 +180,7 @@ export function PremiumBootstrap() {
     return () => {
       script.remove();
     };
-  }, [isPremium, loaded]);
+  }, [isPremium, loaded, bundleVersion]);
 
   useEffect(() => {
     if (!isPremium) {
@@ -183,11 +188,11 @@ export function PremiumBootstrap() {
       return;
     }
     if (isPremiumRoute(pathname)) {
-      injectPremiumStyles();
+      injectPremiumStyles(bundleVersion);
     } else {
       removePremiumStyles();
     }
-  }, [isPremium, pathname]);
+  }, [isPremium, pathname, bundleVersion]);
 
   useEffect(() => {
     if (!isPremium || !premiumModules?.length) return;
