@@ -61,7 +61,7 @@ export function Sheet({
             type="button"
             aria-label="Close"
             tabIndex={-1}
-            className="absolute inset-0 cursor-default bg-black/50"
+            className="absolute inset-0 cursor-default bg-black/50 backdrop-blur-[2px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -78,7 +78,7 @@ export function Sheet({
             animate={reduce ? { opacity: 1 } : { y: 0, opacity: 1 }}
             exit={reduce ? { opacity: 0 } : { y: 40, opacity: 0 }}
             transition={reduce ? { duration: 0.15 } : { type: "spring", damping: 30, stiffness: 320 }}
-            className="store-card relative z-10 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border shadow-2xl outline-none sm:max-w-lg sm:rounded-[1.75rem]"
+            className="store-card store-sheet relative z-10 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] border shadow-2xl outline-none sm:max-w-lg sm:rounded-[1.75rem]"
           >
             <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700 sm:hidden" />
             <div className="flex shrink-0 items-center gap-2 border-b border-black/[0.05] px-4 py-3 dark:border-white/[0.06] sm:px-5">

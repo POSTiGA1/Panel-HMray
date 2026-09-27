@@ -39,6 +39,8 @@ import { resolveStorefrontLayout } from "@/modules/storefront/skins";
 import { BankCardVisual, resolvePaymentCards } from "@/modules/storefront/BankCardVisual";
 import { CryptoWalletVisual } from "@/modules/storefront/CryptoWalletVisual";
 import { rememberStoreSlug, portalPathForSlug } from "@/modules/storefront/store-slug";
+import { StoreBottomNav } from "@/modules/storefront/store-nav";
+import { scrollToTop } from "@/modules/storefront/scroll";
 import { computeCheckoutPreview, type CouponPreview } from "@/modules/storefront/checkout-preview";
 import { fetchApplicableCoupons, pickAutoCouponCode, type ApplicableCouponOffer } from "@/modules/storefront/checkout-coupons";
 import {
@@ -380,6 +382,20 @@ export default function ShopPage() {
             onTrack={() => router.push(`/track/${result.trackingCode}`)}
           />
         </div>
+        <StoreBottomNav
+          slug={store.slug}
+          hasSession={hasCustomerSession}
+          active="track"
+          onHome={() => {
+            setResult(null);
+            setStep("welcome");
+          }}
+          onBuy={() => {
+            setResult(null);
+            setStep("welcome");
+          }}
+          onTrack={() => router.push(`/track/${result.trackingCode}`)}
+        />
       </StoreShell>
     );
   }
@@ -718,7 +734,31 @@ function ShopBody(props: {
       </div>
     ) : null;
 
+  const bottomNav = (
+    <StoreBottomNav
+      slug={slug}
+      hasSession={hasCustomerSession}
+      active={showTrack ? "track" : step === "welcome" ? "home" : "buy"}
+      onHome={() => {
+        setShowTrack(false);
+        setStep("welcome");
+        scrollToTop();
+      }}
+      onBuy={() => {
+        setShowTrack(false);
+        if (step === "welcome") setStep(nextShopStep("welcome", stepCtx));
+        scrollToTop();
+      }}
+      onTrack={() => {
+        setStep("welcome");
+        setShowTrack(true);
+      }}
+    />
+  );
+
   return (
+    <>
+    {bottomNav}
     <AnimatePresence mode="wait">
       {step === "welcome" ? (
         <motion.div
@@ -753,7 +793,7 @@ function ShopBody(props: {
                   initial={{ y: 40, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 40, opacity: 0 }}
-                  className="w-full max-w-md rounded-t-3xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-3xl"
+                  className="store-card store-sheet w-full max-w-md rounded-t-3xl border p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <h3 className="text-lg font-bold">{t("پیگیری سفارش", "Track order")}</h3>
@@ -796,7 +836,7 @@ function ShopBody(props: {
               layout === "market"
                 ? "store-panel rounded-[0.9rem] p-4 sm:p-5"
                 : layout === "split"
-                  ? "rounded-[1rem] border border-[color:var(--store-panel-border)] bg-white p-0 py-2 sm:p-1"
+                  ? "store-card rounded-[1rem] border p-0 py-2 sm:p-1"
                   : layout === "funnel"
                     ? "store-glass rounded-[1.1rem] p-4 sm:p-6"
                     : "rounded-[1.75rem] border border-zinc-200 bg-white/95 p-4 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 sm:rounded-[2rem] sm:p-8"
@@ -806,7 +846,7 @@ function ShopBody(props: {
               <div
                 className={
                   layout === "funnel"
-                    ? "mb-5 rounded-[1.1rem] border border-slate-200/80 bg-white/70 p-4"
+                    ? "mb-5 rounded-[1.1rem] border border-[color:var(--store-panel-border)] bg-white/[0.06] p-4"
                     : "mb-5 rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950"
                 }
               >
@@ -1359,6 +1399,7 @@ function ShopBody(props: {
         </motion.div>
       )}
     </AnimatePresence>
+    </>
   );
 }
 

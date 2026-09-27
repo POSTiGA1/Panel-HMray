@@ -51,7 +51,7 @@ export function defaultPrimaryForSkin(skin: StorefrontSkinId): string {
   if (skin === "atelier") return "#0D9488";
   if (skin === "pulse") return "#10B981";
   if (skin === "lumen") return "#2563EB";
-  if (skin === "cascade") return "#3B82F6";
+  if (skin === "cascade") return "#6366F1";
   return "#3b82f6";
 }
 
@@ -133,17 +133,19 @@ export function skinChrome(
   }
   if (skin === "cascade") {
     return {
-      rootClass: "store-skin-cascade store-layout-funnel",
-      forceDark: false,
+      rootClass: "store-skin-cascade store-layout-funnel dark",
+      forceDark: true,
       layout: resolvedLayout,
       style: {
-        "--store-bg": "transparent",
-        "--store-backdrop": "linear-gradient(165deg, #38BDF8 0%, #4F46E5 52%, #6D28D9 100%)",
-        "--store-fg": "#0F172A",
-        "--store-muted": "#475569",
-        "--store-panel": "rgba(255,255,255,0.94)",
-        "--store-panel-border": "rgba(255,255,255,0.65)",
-        "--store-radius": "1.1rem",
+        "--store-bg": "#070A1F",
+        "--store-backdrop":
+          "radial-gradient(60% 45% at 12% 8%, rgba(56,189,248,0.38), transparent 70%), radial-gradient(55% 45% at 92% 18%, rgba(168,85,247,0.40), transparent 70%), radial-gradient(70% 55% at 50% 100%, rgba(79,70,229,0.45), transparent 72%), linear-gradient(180deg, #0B1030 0%, #070A1F 100%)",
+        "--store-fg": "#F8FAFC",
+        "--store-muted": "rgba(226,232,240,0.74)",
+        "--store-panel": "rgba(255,255,255,0.075)",
+        "--store-panel-strong": "rgba(17,20,48,0.86)",
+        "--store-panel-border": "rgba(255,255,255,0.16)",
+        "--store-radius": "1.35rem",
         "--store-font": '"Inter", "Vazirmatn", ui-sans-serif, system-ui, sans-serif',
         "--store-display": '"Inter", "Vazirmatn", ui-sans-serif, system-ui, sans-serif',
       },
@@ -153,7 +155,13 @@ export function skinChrome(
     rootClass: "store-skin-default store-layout-classic",
     forceDark: false,
     layout: resolvedLayout,
-    style: {},
+    style: {
+      "--store-bg": "#F5F5F7",
+      "--store-fg": "#1D1D1F",
+      "--store-muted": "#6B7280",
+      "--store-panel": "#FFFFFF",
+      "--store-panel-border": "rgba(15,23,42,0.07)",
+    },
   };
 }
 
@@ -178,16 +186,7 @@ export function skinDarkStyle(skin: StorefrontSkinId): Record<string, string> {
       "--store-panel-border": "rgba(255,255,255,0.1)",
     };
   }
-  if (skin === "cascade") {
-    return {
-      "--store-bg": "transparent",
-      "--store-backdrop": "linear-gradient(165deg, #0c4a6e 0%, #312e81 52%, #4c1d95 100%)",
-      "--store-fg": "#F8FAFC",
-      "--store-muted": "#CBD5E1",
-      "--store-panel": "rgba(15,23,42,0.88)",
-      "--store-panel-border": "rgba(255,255,255,0.14)",
-    };
-  }
+  if (skin === "cascade") return {};
   return {
     "--store-bg": "#0B0B0F",
     "--store-fg": "#FAFAFA",

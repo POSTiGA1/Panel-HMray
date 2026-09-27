@@ -235,7 +235,7 @@ export function Surface({
   return (
     <div
       className={clsx(
-        "rounded-[var(--store-radius,1.75rem)] border border-[color:var(--store-panel-border,rgba(0,0,0,0.04))] bg-[color:var(--store-panel,#fff)] text-[color:var(--store-fg)] shadow-[0_8px_30px_-18px_rgba(15,23,42,0.28)]",
+        "store-surface rounded-[var(--store-radius,1.75rem)] border border-[color:var(--store-panel-border,rgba(0,0,0,0.04))] bg-[color:var(--store-panel,#fff)] text-[color:var(--store-fg)] shadow-[0_8px_30px_-18px_rgba(15,23,42,0.28)]",
         interactive && "transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.35)]",
         pad,
         className,
@@ -340,6 +340,7 @@ export function BottomTabBar({
   tabs,
   value,
   onChange,
+  layoutGroup = "store",
 }: {
   tabs: Array<{
     id: string;
@@ -349,14 +350,15 @@ export function BottomTabBar({
   }>;
   value: string;
   onChange: (id: string) => void;
+  layoutGroup?: string;
 }) {
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 lg:hidden"
-      style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px), var(--tg-safe-bottom, 0px))" }}
     >
       <div className="mx-auto max-w-lg px-3">
-        <div className="flex items-stretch gap-1 rounded-[1.6rem] border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]/92 p-1.5 shadow-[0_-8px_40px_-12px_rgba(15,23,42,0.25)] backdrop-blur-2xl">
+        <div className="store-appbar flex items-stretch gap-1 rounded-[1.6rem] border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]/92 p-1.5 shadow-[0_-8px_40px_-12px_rgba(15,23,42,0.25)] backdrop-blur-2xl">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = value === tab.id;
@@ -366,13 +368,20 @@ export function BottomTabBar({
                 type="button"
                 onClick={() => onChange(tab.id)}
                 className={clsx(
-                  "relative flex min-h-[52px] min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[1.2rem] px-1 py-1.5 text-[10px] font-semibold tracking-wide transition duration-200 active:scale-95",
-                  active
-                    ? "bg-[color:var(--store-primary)]/12 text-[color:var(--store-primary)]"
-                    : "text-zinc-400",
+                  "store-focus-ring relative flex min-h-[54px] min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[1.2rem] px-1 py-1.5 text-[11px] font-semibold transition-colors duration-200 active:scale-95 motion-reduce:active:scale-100",
+                  active ? "text-[color:var(--store-primary)]" : "text-[color:var(--store-muted)]",
                 )}
                 aria-current={active ? "page" : undefined}
+                aria-label={tab.label}
               >
+                {active ? (
+                  <motion.span
+                    layoutId={`${layoutGroup}-bottom-tab`}
+                    aria-hidden
+                    className="absolute inset-0 rounded-[1.2rem] bg-[color:var(--store-primary)]/12"
+                    transition={{ type: "spring", stiffness: 480, damping: 38 }}
+                  />
+                ) : null}
                 <span className="relative">
                   <Icon size={22} strokeWidth={active ? 2.5 : 2} />
                   {tab.badge ? (
@@ -381,7 +390,7 @@ export function BottomTabBar({
                     </span>
                   ) : null}
                 </span>
-                <span className="truncate">{tab.label}</span>
+                <span className="relative max-w-full truncate">{tab.label}</span>
               </button>
             );
           })}
@@ -409,7 +418,7 @@ export function StatTile({
         tone === "success" && "border-emerald-500/20 bg-emerald-500/[0.08]",
         tone === "warn" && "border-amber-500/20 bg-amber-500/[0.08]",
         tone === "default" &&
-          "border-[color:var(--store-panel-border,rgba(0,0,0,0.04))] bg-[color:var(--store-panel,#fff)]",
+          "store-surface border-[color:var(--store-panel-border,rgba(0,0,0,0.04))] bg-[color:var(--store-panel,#fff)]",
       )}
     >
       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">{label}</div>

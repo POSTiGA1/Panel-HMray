@@ -380,35 +380,67 @@ function CascadeHero({
   const { isFa } = useStorefrontLocale();
   const copy = resolveStorefrontCopy(store?.publishedTheme?.settings, isFa);
   const reduce = useReducedMotion();
+  const name = store?.branding?.name || store?.title || "";
 
   return (
     <motion.section
       {...(reduce ? {} : fadeUp)}
       transition={fadeUpTransition}
-      className="store-enter mx-auto w-full max-w-lg"
+      className="store-enter mx-auto w-full max-w-xl"
     >
-      <div className="store-glass rounded-[1.1rem] p-6 sm:p-8">
-        <p className="text-[13px] font-medium text-slate-500">{copy.kicker}</p>
-        <h1 className="mt-2 text-[1.75rem] font-semibold leading-tight text-slate-900 [font-family:var(--store-display,inherit)] sm:text-[2rem]">
+      <div className="store-glass relative overflow-hidden rounded-[1.75rem] p-6 sm:p-9">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-24 end-[-4rem] h-56 w-56 rounded-full opacity-60 blur-3xl"
+          style={{ background: "radial-gradient(circle, var(--store-primary), transparent 70%)" }}
+        />
+        <span className="relative inline-flex min-h-8 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.08] px-3 text-[12px] font-semibold text-[color:var(--store-fg)]">
+          <Sparkles size={13} aria-hidden className="text-[color:var(--store-primary)]" />
+          {copy.kicker || name}
+        </span>
+        <h1 className="store-gradient-text relative mt-4 text-[2rem] font-bold leading-[1.15] [font-family:var(--store-display,inherit)] sm:text-[2.6rem]">
           {copy.headline}
         </h1>
         {copy.subhead ? (
-          <p className="mt-3 text-[15px] leading-[1.55] text-slate-600">{copy.subhead}</p>
+          <p className="relative mt-3 max-w-md text-[15px] leading-[1.65] text-[color:var(--store-muted)]">{copy.subhead}</p>
         ) : null}
-        <div className="mt-7 space-y-3">
+
+        <div className="relative mt-7 grid gap-3 sm:grid-cols-2">
           <PrimaryButton onClick={onBuy}>{copy.ctaPrimary}</PrimaryButton>
-          <SecondaryButton onClick={onLogin}>{copy.ctaSecondary}</SecondaryButton>
+          <SecondaryButton onClick={onLogin} className="!bg-white/[0.08] !border-white/15 hover:!bg-white/[0.12]">
+            {copy.ctaSecondary}
+          </SecondaryButton>
         </div>
         {onTrack ? (
           <button
             type="button"
             onClick={onTrack}
-            className="store-focus-ring mt-4 min-h-11 w-full cursor-pointer text-[14px] font-medium text-slate-600"
+            className="store-focus-ring relative mt-3 min-h-11 w-full cursor-pointer rounded-xl text-[14px] font-semibold text-[color:var(--store-muted)] transition-colors duration-200 hover:text-[color:var(--store-fg)]"
           >
             {copy.ctaTrack}
           </button>
         ) : null}
       </div>
+
+      {copy.features.length ? (
+        <ul className="mt-4 grid gap-3 sm:grid-cols-3">
+          {copy.features.slice(0, 3).map((feature, index) => {
+            const Icon = FEATURE_ICONS[index % FEATURE_ICONS.length];
+            return (
+              <li key={feature.title} className="store-glass flex items-start gap-3 rounded-[1.25rem] p-4 sm:flex-col">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--store-primary)]/20 text-[color:var(--store-fg)] ring-1 ring-inset ring-white/15">
+                  <Icon size={18} aria-hidden />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold text-[color:var(--store-fg)]">{feature.title}</span>
+                  <span className="mt-0.5 block text-[12.5px] leading-relaxed text-[color:var(--store-muted)]">{feature.body}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <StoreSupportChips supportLinks={store?.branding?.supportLinks} />
     </motion.section>
   );
 }

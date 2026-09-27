@@ -29,10 +29,13 @@ export function StoreShell({
   store,
   children,
   topBar,
+  actions,
 }: {
   store?: StorefrontStore;
   children: React.ReactNode;
   topBar?: React.ReactNode;
+  /** Extra app-bar buttons (e.g. logout), rendered before theme/language controls. */
+  actions?: React.ReactNode;
 }) {
   const brandingPrimary = store?.branding?.primaryColor || "";
   const settings = store?.publishedTheme?.settings;
@@ -52,6 +55,7 @@ export function StoreShell({
           chrome={chrome}
           skin={skin}
           topBar={topBar}
+          actions={actions}
         >
           {children}
         </StoreShellInner>
@@ -67,6 +71,7 @@ function StoreShellInner({
   chrome,
   skin,
   topBar,
+  actions,
   children,
 }: {
   store?: StorefrontStore;
@@ -75,6 +80,7 @@ function StoreShellInner({
   chrome: ReturnType<typeof skinChrome>;
   skin: StorefrontSkinId;
   topBar?: React.ReactNode;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const { isFa } = useStorefrontLocale();
@@ -84,7 +90,6 @@ function StoreShellInner({
   const logoDark = store?.logoDarkUrl || store?.branding?.logoDark || null;
   const title = store?.branding?.name || store?.title || "Store";
   const layout: StorefrontLayoutId = chrome.layout || "classic";
-  const themed = skin !== "default";
   const customCss = sanitizeThemeCss(
     store?.publishedTheme?.settings && typeof store.publishedTheme.settings === "object"
       ? (store.publishedTheme.settings as { customCss?: string }).customCss
@@ -134,20 +139,36 @@ function StoreShellInner({
   };
 
   const brandMark = <StoreBrandMark logoLight={logoLight} logoDark={logoDark} title={title} />;
+  const controls = (
+    <div className="flex shrink-0 items-center gap-1.5">
+      {actions}
+      {chrome.forceDark ? null : <StorefrontThemeToggle />}
+      <LanguageSwitcher className="!h-11 !rounded-2xl !shadow-none" />
+    </div>
+  );
+  const brandBlock = (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      {brandMark}
+      <div className="min-w-0">
+        <div className="truncate text-[16px] font-bold leading-tight tracking-tight [font-family:var(--store-display,inherit)]">
+          {title}
+        </div>
+        {topBar ? <div className="mt-0.5 truncate text-[12px] text-[color:var(--store-muted)]">{topBar}</div> : null}
+      </div>
+    </div>
+  );
+  const floatingTop = { top: "max(0.5rem, env(safe-area-inset-top, 0px), var(--tg-safe-top, 0px))" };
+  const shellClass = `store-shell ${chrome.rootClass} min-h-[100dvh] text-[color:var(--store-fg)] ${
+    isFa && skin !== "cascade" ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""
+  } ${chrome.forceDark ? "dark" : ""}`;
+  const description = store?.branding?.description || store?.description || copy.subhead;
 
   if (layout === "split" || skin === "lumen") {
     return (
-      <div
-        className={`store-shell ${chrome.rootClass} min-h-[100dvh] ${
-          themed ? "bg-[color:var(--store-bg)] text-[color:var(--store-fg)]" : ""
-        } ${isFa && skin !== "cascade" ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""} ${chrome.forceDark ? "dark" : ""}`}
-        data-store-layout={layout}
-        data-store-skin={skin}
-        style={cssVars}
-      >
+      <div className={shellClass} data-store-layout={layout} data-store-skin={skin} style={cssVars}>
         {customCss ? <style dangerouslySetInnerHTML={{ __html: customCss }} /> : null}
         <div className="lg:grid lg:min-h-[100dvh] lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
-          <aside className="relative z-20 border-b border-[color:var(--store-panel-border)] px-5 py-5 lg:border-b-0 lg:border-e lg:px-7 lg:py-8">
+          <aside className="relative z-20 hidden border-e border-[color:var(--store-panel-border)] px-7 py-8 lg:sticky lg:top-0 lg:block lg:h-[100dvh] lg:overflow-y-auto">
             <div className="flex items-center gap-3">
               {brandMark}
               <div className="min-w-0">
@@ -157,28 +178,31 @@ function StoreShellInner({
                 {topBar ? <div className="mt-0.5 truncate text-[12px] text-[color:var(--store-muted)]">{topBar}</div> : null}
               </div>
             </div>
-            {store?.branding?.description || store?.description ? (
-              <p className="mt-5 max-w-sm whitespace-pre-line text-[14px] leading-relaxed text-[color:var(--store-muted)]">
-                {store?.branding?.description || store?.description}
-              </p>
-            ) : (
-              <p className="mt-5 max-w-sm text-[14px] leading-relaxed text-[color:var(--store-muted)]">
-                {copy.subhead}
-              </p>
-            )}
+            <p className="mt-5 max-w-sm whitespace-pre-line text-[14px] leading-relaxed text-[color:var(--store-muted)]">
+              {description}
+            </p>
             <LumenContactColumn store={store} copy={copy} />
-            <div className="mt-8 hidden items-center gap-2 lg:flex">
-              {chrome.forceDark ? null : <StorefrontThemeToggle />}
-              <LanguageSwitcher className="!h-11 !rounded-2xl !shadow-none" />
-            </div>
+            <div className="mt-8">{controls}</div>
           </aside>
           <div className="relative min-w-0">
-            <header className="sticky top-0 z-40 flex items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:hidden">
-              {chrome.forceDark ? null : <StorefrontThemeToggle />}
-              <LanguageSwitcher className="!h-11 !rounded-2xl !shadow-none" />
+            <header className="sticky z-40 px-3 lg:hidden" style={floatingTop}>
+              <div className="store-appbar flex items-center gap-3 rounded-[1.25rem] border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]/90 px-3 py-2 shadow-[0_10px_30px_-20px_rgba(15,23,42,0.4)] backdrop-blur-xl">
+                {brandBlock}
+                {controls}
+              </div>
             </header>
-            <main className="relative mx-auto w-full max-w-4xl px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-2 sm:px-8 lg:px-10 lg:pb-16 lg:pt-8">
+            <main className="relative mx-auto w-full max-w-4xl px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-4 sm:px-8 lg:px-10 lg:pb-16 lg:pt-8">
               {children}
+              <section className="store-card mt-10 rounded-[var(--store-radius)] border p-5 lg:hidden" aria-label={title}>
+                <div className="flex items-center gap-3">
+                  {brandMark}
+                  <div className="min-w-0 truncate text-[15px] font-bold [font-family:var(--store-display,inherit)]">{title}</div>
+                </div>
+                <p className="mt-3 whitespace-pre-line text-[14px] leading-relaxed text-[color:var(--store-muted)]">
+                  {description}
+                </p>
+                <LumenContactColumn store={store} copy={copy} compact />
+              </section>
               <StoreFooter note={store?.branding?.footerText || copy.footerNote} />
             </main>
           </div>
@@ -188,29 +212,21 @@ function StoreShellInner({
   }
 
   const headerInner =
-    layout === "market"
-      ? "mx-auto flex max-w-xl items-center gap-3 border-b border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)] px-4 py-2.5 sm:max-w-lg lg:max-w-xl"
-      : layout === "funnel"
-        ? "mx-auto flex max-w-3xl items-center gap-3 rounded-[1.1rem] border border-white/60 bg-white/90 px-4 py-2.5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur-xl dark:border-white/15 dark:bg-zinc-950/85"
-        : `mx-auto flex max-w-5xl items-center gap-3 px-3 py-2.5 backdrop-blur-2xl lg:px-4 ${
+    skin === "cascade"
+      ? "store-appbar mx-auto flex max-w-3xl items-center gap-3 rounded-[1.35rem] border border-white/15 bg-white/[0.08] px-3 py-2 shadow-[0_18px_50px_-30px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-2xl backdrop-saturate-150"
+      : layout === "market"
+        ? "store-appbar mx-auto flex max-w-xl items-center gap-3 border-b border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)] px-4 py-2 sm:max-w-lg lg:max-w-xl"
+        : `store-appbar mx-auto flex max-w-5xl items-center gap-3 px-3 py-2 backdrop-blur-2xl lg:px-4 ${
             skin === "atelier"
               ? "rounded-[var(--store-radius)] border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)]/90 shadow-[0_10px_36px_-22px_rgba(15,23,42,0.35)]"
               : "rounded-[1.5rem] border border-black/[0.05] bg-white/80 shadow-[0_8px_30px_-18px_rgba(15,23,42,0.35)] dark:border-white/[0.08] dark:bg-zinc-950/75"
           }`;
+  const floatingHeader = skin === "cascade" || layout !== "market";
 
   return (
-    <div
-      className={`store-shell ${chrome.rootClass} min-h-[100dvh] ${
-        themed
-          ? "text-[color:var(--store-fg)]"
-          : "bg-[#F5F5F7] text-[#1D1D1F] dark:bg-[#0B0B0F] dark:text-zinc-50"
-      } ${isFa && skin !== "cascade" ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""} ${chrome.forceDark ? "dark" : ""}`}
-      data-store-layout={layout}
-      data-store-skin={skin}
-      style={cssVars}
-    >
+    <div className={shellClass} data-store-layout={layout} data-store-skin={skin} style={cssVars}>
       {customCss ? <style dangerouslySetInnerHTML={{ __html: customCss }} /> : null}
-      {layout === "funnel" ? null : (
+      {skin === "cascade" ? null : (
         <div
           aria-hidden
           className={`pointer-events-none fixed inset-x-0 top-0 opacity-90 ${
@@ -225,21 +241,13 @@ function StoreShellInner({
         />
       )}
 
-      <header className={layout === "market" ? "sticky top-0 z-40" : "sticky top-0 z-40 px-3 pt-1 sm:px-4"}>
+      <header
+        className={floatingHeader ? "sticky z-40 px-3 sm:px-4" : "sticky z-40"}
+        style={floatingHeader ? floatingTop : { top: "max(0px, env(safe-area-inset-top, 0px), var(--tg-safe-top, 0px))" }}
+      >
         <div className={headerInner}>
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {brandMark}
-            <div className="min-w-0">
-              <div className="truncate text-[16px] font-bold leading-tight tracking-tight [font-family:var(--store-display,inherit)]">
-                {title}
-              </div>
-              {topBar ? <div className="mt-0.5 truncate text-[12px] text-[color:var(--store-muted)]">{topBar}</div> : null}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {chrome.forceDark ? null : <StorefrontThemeToggle />}
-            <LanguageSwitcher className="!h-11 !rounded-2xl !shadow-none" />
-          </div>
+          {brandBlock}
+          {controls}
         </div>
       </header>
 
@@ -312,34 +320,36 @@ function StoreFooter({ note }: { note?: string }) {
 function LumenContactColumn({
   store,
   copy,
+  compact,
 }: {
   store?: StorefrontStore;
   copy: ReturnType<typeof resolveStorefrontCopy>;
+  compact?: boolean;
 }) {
   const links = normalizeSupportLinks(store?.branding?.supportLinks);
   if (!links.length) return null;
   return (
-    <div className="mt-8 space-y-5">
+    <div className={compact ? "mt-4 grid gap-1 sm:grid-cols-2" : "mt-8 space-y-5"}>
       {links.map((link) => (
         <a
           key={link.label}
           href={link.href}
           target="_blank"
           rel="noreferrer"
-          className="store-focus-ring group flex cursor-pointer items-start gap-3 rounded-xl p-1 text-start transition duration-200 hover:bg-slate-50 dark:hover:bg-white/5"
+          className="store-focus-ring group flex min-h-11 cursor-pointer items-center gap-3 rounded-xl p-1 text-start transition-colors duration-200 hover:bg-black/[0.03] dark:hover:bg-white/5"
         >
-          <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-white/15 dark:text-zinc-400">
-            <link.icon size={16} />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[color:var(--store-panel-border)] text-[color:var(--store-muted)]">
+            <link.icon size={16} aria-hidden />
           </span>
-          <span>
-            <span className="block text-[13px] font-semibold text-slate-900 dark:text-zinc-100">
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-[color:var(--store-fg)]">
               {link.kind === "telegram" || link.kind === "whatsapp"
                 ? copy.chatLabel
                 : link.kind === "website"
                   ? copy.officeLabel
                   : copy.phoneLabel}
             </span>
-            <span className="mt-0.5 block text-[13px] text-slate-500 dark:text-zinc-400 underline-offset-2 group-hover:underline">
+            <span className="mt-0.5 block truncate text-[13px] text-[color:var(--store-muted)] underline-offset-2 group-hover:underline">
               {link.label}
             </span>
           </span>

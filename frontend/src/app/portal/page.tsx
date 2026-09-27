@@ -18,6 +18,7 @@ import {
   shopPathForSlug,
 } from "@/modules/storefront/store-slug";
 import type { StorefrontStore } from "@/modules/storefront/types";
+import { StoreBottomNav } from "@/modules/storefront/store-nav";
 
 function PortalLoginForm({ store }: { store?: StorefrontStore | null }) {
   const router = useRouter();
@@ -158,6 +159,7 @@ function PortalLoginBody() {
   return (
     <StoreShell store={store || undefined} topBar={slug || undefined}>
       <PortalLoginForm store={store} />
+      {slug ? <StoreBottomNav slug={slug} active="account" /> : null}
     </StoreShell>
   );
 }

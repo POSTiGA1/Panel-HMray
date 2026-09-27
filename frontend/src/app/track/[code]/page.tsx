@@ -25,6 +25,7 @@ import { StoreShell } from "@/modules/storefront/ui";
 import { StorefrontLocaleProvider, useStorefrontLocale } from "@/modules/storefront/locale";
 import { portalPathForSlug, shopPathForSlug } from "@/modules/storefront/store-slug";
 import { DigitalCodeBox, type DigitalOrderView } from "@/modules/storefront/DigitalCodeBox";
+import { StoreBottomNav } from "@/modules/storefront/store-nav";
 
 function portalHref(storeSlug?: string | null, customerToken?: string | null) {
   const hasSession =
@@ -246,6 +247,9 @@ export default function TrackOrderPage() {
       }
     >
       <TrackBody data={data} isFetching={isFetching} />
+      {data.storeSlug ? (
+        <StoreBottomNav slug={data.storeSlug} active="track" hasSession={!!getCustomerSessionToken()} />
+      ) : null}
     </StoreShell>
   );
 }

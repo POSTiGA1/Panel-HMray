@@ -7,12 +7,109 @@
   background-attachment: fixed;
 }
 
+/* ── Cascade: dark aurora glass ─────────────────────────────────────────────
+   The aurora lives on a fixed pseudo-layer so it never scrolls away on mobile
+   (background-attachment: fixed is ignored by iOS / Telegram WebViews). */
 .store-skin-cascade.store-shell {
-  background-color: #4f46e5;
-  background-image: var(--store-backdrop);
+  position: relative;
+  isolation: isolate;
+  background-color: var(--store-bg, #070a1f);
+  background-image: none;
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv11", "ss01", "kern";
+}
+.store-skin-cascade.store-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--store-backdrop);
+}
+.store-skin-cascade.store-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+}
+
+/* Frosted glass with a soft top sheen for every theme-aware surface. */
+.store-skin-cascade :is(.store-card, .store-glass, .store-panel, .store-surface) {
+  background-color: var(--store-panel);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.015) 100%);
+  border-color: var(--store-panel-border);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 22px 50px -32px rgba(0, 0, 0, 0.85);
+}
+.store-skin-cascade .store-card:hover {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+.store-skin-cascade :is(.store-card[aria-pressed="true"], .store-card[aria-checked="true"], .store-card[data-open="true"]) {
+  border-color: color-mix(in srgb, var(--store-primary) 70%, white 10%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 0 1px color-mix(in srgb, var(--store-primary) 45%, transparent),
+    0 18px 40px -24px var(--store-primary);
+}
+/* Sheets need an almost-opaque pane so long forms stay readable over the aurora. */
+.store-skin-cascade .store-card.store-sheet {
+  background-color: var(--store-panel-strong, rgba(17, 20, 48, 0.86));
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+}
+
+.store-skin-cascade .store-appbar {
+  background-color: rgba(14, 17, 44, 0.58);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border-color: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+}
+
+/* Components that still use hard-coded zinc dark surfaces become glass too. */
+.store-skin-cascade
+  :is(
+    .dark\:bg-zinc-900,
+    .dark\:bg-zinc-950,
+    .dark\:bg-zinc-800,
+    .dark\:bg-zinc-900\/95,
+    .dark\:bg-zinc-900\/90,
+    .dark\:bg-zinc-900\/70,
+    .dark\:bg-zinc-900\/60,
+    .dark\:bg-zinc-900\/40,
+    .dark\:bg-zinc-950\/75,
+    .dark\:bg-zinc-950\/70,
+    .dark\:bg-zinc-950\/60,
+    .dark\:bg-zinc-950\/50,
+    .dark\:bg-zinc-950\/40,
+    .dark\:bg-zinc-800\/70
+  ) {
+  background-color: rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+.store-skin-cascade
+  :is(
+    .dark\:border-zinc-800,
+    .dark\:border-zinc-700,
+    .dark\:border-white\/10,
+    .dark\:border-white\/\[0\.06\],
+    .dark\:border-white\/\[0\.08\]
+  ) {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.store-skin-cascade :is(input, textarea, select) {
+  color-scheme: dark;
+}
+.store-skin-cascade select option {
+  background: #11142f;
+  color: #f8fafc;
 }
 
 .store-skin-cascade h1 {
@@ -27,7 +124,15 @@
 
 .store-skin-cascade .store-cta-glow {
   animation: none;
-  box-shadow: 0 10px 22px -12px var(--store-primary);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 14px 34px -14px var(--store-primary);
+}
+
+.store-gradient-text {
+  background-image: linear-gradient(120deg, #ffffff 0%, #c7d2fe 45%, #f0abfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .store-cta-glow {
@@ -55,10 +160,6 @@
 .store-card[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--store-primary) 45%, transparent);
 }
-.store-skin-cascade .store-card {
-  backdrop-filter: blur(18px);
-}
-
 .store-focus-ring:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--store-primary) 80%, white);
   outline-offset: 2px;
@@ -92,14 +193,8 @@
 }
 
 .store-skin-cascade .store-glass {
-  border: 1px solid var(--store-panel-border, rgba(255, 255, 255, 0.72));
-  background: var(--store-panel, rgba(255, 255, 255, 0.94));
-  box-shadow: 0 20px 48px -28px rgba(15, 23, 42, 0.38);
-  backdrop-filter: blur(20px);
-}
-
-.dark .store-skin-cascade .store-glass {
-  box-shadow: 0 20px 48px -28px rgba(0, 0, 0, 0.55);
+  border-width: 1px;
+  border-style: solid;
 }
 
 @keyframes store-glow-pulse {
@@ -125,6 +220,15 @@
 
 .store-enter {
   animation: store-fade-up 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Backdrop-filter is expensive; drop it where the user asks for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  .store-skin-cascade :is(.store-card, .store-glass, .store-panel, .store-surface, .store-sheet, .store-appbar) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--store-panel-strong, rgba(17, 20, 48, 0.94));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

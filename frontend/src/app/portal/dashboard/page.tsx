@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
   Copy,
   Gift,
+  Layers,
   Link2,
   LoaderCircle,
   LogOut,
@@ -66,6 +67,7 @@ import {
   ConfirmSheet,
   type CancelTarget,
 } from "@/modules/storefront/PortalServiceActions";
+import { PickRow, Sheet, SheetButton, SheetNotice, stripLeadingEmoji } from "@/modules/storefront/portal-sheet";
 import {
   detectTelegramUserId,
   isReceiptPayMethod,
@@ -429,13 +431,21 @@ function CustomerDashboardInner() {
     t,
   );
 
-  const segments: Array<{ id: HomeSegment; label: string; icon: typeof Shield; count: number }> = [
+  const segments: SegmentItem[] = [
     { id: "vpn", label: t("وی‌پی‌ان", "VPN"), icon: Shield, count: (data.services || []).length },
     ...(digitalOrders.length || data.store?.buyMenu?.digital?.available
       ? [{ id: "digital" as const, label: t("دیجیتال", "Digital"), icon: Gift, count: digitalOrders.length }]
       : []),
     ...(showPaygSegment
-      ? [{ id: "payg" as const, label: t("پرداخت به‌ازای مصرف", "Pay as you go"), icon: Zap, count: payg?.subscriptions?.length ?? 0 }]
+      ? [
+          {
+            id: "payg" as const,
+            label: t("پرداخت به‌ازای مصرف", "Pay as you go"),
+            shortLabel: t("مصرفی", "PAYG"),
+            icon: Zap,
+            count: payg?.subscriptions?.length ?? 0,
+          },
+        ]
       : []),
   ];
   const activeSegment: HomeSegment = segments.some((s) => s.id === segment) ? segment : "vpn";
@@ -482,44 +492,29 @@ function CustomerDashboardInner() {
         branding: data.branding,
         publishedTheme: data.publishedTheme || data.store?.publishedTheme,
       }}
-      topBar={
-        tab === "home" ? (
-          <PortalTopBarLabel />
-        ) : (
-          <div className="flex w-full items-center justify-between gap-3">
-            <PortalTopBarLabel />
-            <button
-              type="button"
-              onClick={() => logout.mutateAsync().then(goShop)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-              aria-label="Logout"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        )
+      topBar={<PortalTopBarLabel />}
+      actions={
+        <button
+          type="button"
+          onClick={() => logout.mutateAsync().then(goShop)}
+          className="store-card store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border text-[color:var(--store-muted)] transition-colors duration-200 hover:text-rose-500 active:scale-95"
+          aria-label={t("خروج", "Log out")}
+          title={t("خروج", "Log out")}
+        >
+          <LogOut size={18} aria-hidden />
+        </button>
       }
     >
       <MotionPage className={`mx-auto w-full max-w-3xl ${isFa ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""}`}>
         {tab === "home" ? (
           <section className="mb-5 sm:mb-7">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium text-[color:var(--store-muted)]">
-                  {t("سلام", "Hello")}
-                </p>
-                <h1 className="mt-0.5 truncate text-[1.75rem] font-black tracking-tight text-[color:var(--store-fg)] sm:text-[2rem]">
-                  {data.profile?.name || t("مشتری عزیز", "Customer")}
-                </h1>
-              </div>
-              <button
-                type="button"
-                onClick={() => logout.mutateAsync().then(goShop)}
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-black/[0.06] bg-white text-zinc-600 shadow-sm transition active:scale-95 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-300"
-                aria-label="Logout"
-              >
-                <LogOut size={18} />
-              </button>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-[color:var(--store-muted)]">
+                {t("سلام", "Hello")}
+              </p>
+              <h1 className="mt-0.5 truncate text-[1.6rem] font-black tracking-tight text-[color:var(--store-fg)] sm:text-[2rem]">
+                {data.profile?.name || t("مشتری عزیز", "Customer")}
+              </h1>
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
@@ -537,16 +532,17 @@ function CustomerDashboardInner() {
         ) : null}
 
         {/* Desktop tabs */}
-        <div className="mb-5 hidden gap-1 rounded-[1.35rem] border border-black/[0.05] bg-white p-1.5 shadow-sm dark:border-white/[0.06] dark:bg-zinc-900 lg:mb-7 lg:flex lg:max-w-md">
+        <div className="store-card mb-5 hidden gap-1 rounded-[1.35rem] border p-1.5 shadow-sm lg:mb-7 lg:flex lg:max-w-md">
           {bottomTabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setTab(item.id as DashTab)}
-              className={`flex-1 cursor-pointer rounded-[1.1rem] px-3 py-2.5 text-[13px] font-semibold transition ${
+              aria-current={tab === item.id ? "page" : undefined}
+              className={`store-focus-ring flex-1 cursor-pointer rounded-[1.1rem] px-3 py-2.5 text-[13px] font-semibold transition-colors duration-200 ${
                 tab === item.id
                   ? "bg-[color:var(--store-primary)] text-white"
-                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  : "text-[color:var(--store-muted)] hover:text-[color:var(--store-fg)]"
               }`}
             >
               {item.label}
@@ -725,68 +721,49 @@ function CustomerDashboardInner() {
         }}
       />
 
-      {categoryPickService ? (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/45 sm:items-center">
-          <button
-            type="button"
-            className="absolute inset-0"
-            aria-label="Close"
-            onClick={() => setCategoryPickService(null)}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-t-[1.5rem] bg-white p-5 shadow-2xl dark:bg-zinc-900 sm:rounded-2xl">
-            <div className="text-sm font-bold">
-              {t("دسته‌بندی سرویس را مشخص کنید", "Choose the service category")}
-            </div>
-            <p className="mt-1.5 text-xs text-zinc-500">
-              {t(
-                "برای تمدید باید بدانیم این سرویس از کدام دسته بوده است.",
-                "Renewal needs to know which category this service belongs to.",
-              )}
-            </p>
-            <select
-              value={categoryPickId}
-              onChange={(e) => {
-                setCategoryPickId(e.target.value);
-                setCategoryPickError("");
-              }}
-              className="mt-4 h-11 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-950"
-            >
-              {!categories.length ? (
-                <option value="">{t("دسته‌بندی‌ای موجود نیست", "No categories available")}</option>
-              ) : (
-                categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))
-              )}
-            </select>
-            {categoryPickError ? (
-              <p className="mt-2 text-xs text-red-500">{categoryPickError}</p>
-            ) : null}
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setCategoryPickService(null)}
-                className="flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 text-xs font-semibold dark:border-zinc-700"
-              >
-                {t("انصراف", "Cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={assignServiceCategory.isPending || !categoryPickId}
-                onClick={() => void submitCategoryPick()}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[color:var(--store-primary)] px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                {assignServiceCategory.isPending ? (
-                  <LoaderCircle size={14} className="animate-spin" />
-                ) : null}
-                {t("ذخیره و ادامه", "Save & continue")}
-              </button>
-            </div>
+      <Sheet
+        open={!!categoryPickService}
+        onClose={() => setCategoryPickService(null)}
+        title={t("دسته‌بندی سرویس را مشخص کنید", "Choose the service category")}
+        subtitle={t(
+          "برای تمدید باید بدانیم این سرویس از کدام دسته بوده است.",
+          "Renewal needs to know which category this service belongs to.",
+        )}
+        footer={
+          <SheetButton
+            loading={assignServiceCategory.isPending}
+            disabled={!categoryPickId}
+            onClick={() => void submitCategoryPick()}
+          >
+            {t("ذخیره و ادامه", "Save & continue")}
+          </SheetButton>
+        }
+      >
+        {!categories.length ? (
+          <SheetNotice tone="warn">{t("دسته‌بندی‌ای موجود نیست", "No categories available")}</SheetNotice>
+        ) : (
+          <div role="radiogroup" className="space-y-2">
+            {categories.map((c) => (
+              <PickRow
+                key={c.id}
+                title={stripLeadingEmoji(c.name)}
+                hint={c.description || undefined}
+                icon={<Layers size={18} aria-hidden />}
+                selected={categoryPickId === c.id}
+                onClick={() => {
+                  setCategoryPickId(c.id);
+                  setCategoryPickError("");
+                }}
+              />
+            ))}
           </div>
-        </div>
-      ) : null}
+        )}
+        {categoryPickError ? (
+          <div className="mt-3">
+            <SheetNotice tone="error">{categoryPickError}</SheetNotice>
+          </div>
+        ) : null}
+      </Sheet>
     </StoreShell>
   );
 }
@@ -1086,7 +1063,7 @@ function WalletSettlementSurface({
   );
 }
 
-type SegmentItem = { id: HomeSegment; label: string; icon: typeof Shield; count: number };
+type SegmentItem = { id: HomeSegment; label: string; shortLabel?: string; icon: typeof Shield; count: number };
 
 const PROVIDER_GROUPS: Array<{ id: "eylan" | "pasarguard" | "panel_3xui"; label: string }> = [
   { id: "panel_3xui", label: "3x-ui" },
@@ -1113,11 +1090,13 @@ function SegmentBar({
   onChange: (id: HomeSegment) => void;
 }) {
   const { isFa } = useStorefrontLocale();
+  const reduce = useReducedMotion();
   if (segments.length <= 1) return null;
   return (
     <div
       role="tablist"
-      className="flex gap-1 rounded-[1.35rem] border border-black/[0.05] bg-white p-1.5 shadow-sm dark:border-white/[0.06] dark:bg-zinc-900"
+      className="store-card grid gap-1 rounded-[1.35rem] border p-1 shadow-[0_6px_24px_-18px_rgba(15,23,42,0.35)]"
+      style={{ gridTemplateColumns: `repeat(${segments.length}, minmax(0, 1fr))` }}
     >
       {segments.map((s) => {
         const Icon = s.icon;
@@ -1128,19 +1107,37 @@ function SegmentBar({
             type="button"
             role="tab"
             aria-selected={active}
+            aria-label={s.label}
             onClick={() => onChange(s.id)}
-            className={`store-focus-ring flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[1.1rem] px-2 text-[13px] font-semibold transition-colors duration-200 ${
-              active
-                ? "bg-[color:var(--store-primary)] text-white"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            className={`store-focus-ring relative flex min-h-12 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-[1.1rem] px-1.5 text-[12.5px] font-semibold transition-colors duration-200 sm:text-[13px] ${
+              active ? "text-white" : "text-[color:var(--store-muted)] hover:text-[color:var(--store-fg)]"
             }`}
           >
-            <Icon size={15} className="shrink-0" />
-            <span className="truncate">{s.label}</span>
+            {active ? (
+              <motion.span
+                layoutId="portal-segment-pill"
+                aria-hidden
+                className="absolute inset-0 rounded-[1.1rem] bg-[color:var(--store-primary)] shadow-[0_8px_20px_-10px_var(--store-primary)]"
+                transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 480, damping: 36 }}
+              />
+            ) : null}
+            <Icon size={16} className="relative shrink-0" aria-hidden />
+            <span className="relative min-w-0 truncate">
+              {s.shortLabel ? (
+                <>
+                  <span className="sm:hidden">{s.shortLabel}</span>
+                  <span className="hidden sm:inline">{s.label}</span>
+                </>
+              ) : (
+                s.label
+              )}
+            </span>
             {s.count > 0 ? (
               <span
-                className={`shrink-0 rounded-full px-1.5 text-[10.5px] font-bold tabular-nums ${
-                  active ? "bg-white/25" : "bg-zinc-100 dark:bg-zinc-800"
+                className={`relative flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10.5px] font-bold tabular-nums ${
+                  active
+                    ? "bg-white/25 text-white"
+                    : "bg-[color:var(--store-primary)]/10 text-[color:var(--store-primary)]"
                 }`}
               >
                 {s.count.toLocaleString(isFa ? "fa-IR" : "en-US")}
