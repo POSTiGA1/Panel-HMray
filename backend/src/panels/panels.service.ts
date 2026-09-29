@@ -3233,8 +3233,10 @@ export class PanelsService implements OnModuleInit {
 
   /**
    * Protocol share URLs for a client via authenticated panel API.
-   * Preferred when the public /sub/ host is unreachable from HMPanel
-   * (common CDN/geo split) — same strings as 3x-ui "Copy URL".
+   * Used when the public /sub/ host is unreachable from HMPanel.
+   * `subLinks/{subId}` is the same result set as the native sub feed, so it
+   * wins; `links/{email}` fans out over every managed host / external proxy
+   * (3x-ui "Copy URL") and can carry a different transport/host.
    */
   async getClientProtocolLinks(
     panelId: string,
@@ -3246,14 +3248,14 @@ export class PanelsService implements OnModuleInit {
 
     const { base, headers, agent } = await this.getPanelHttpContext(panelId);
     const endpoints: string[] = [];
-    if (email) {
-      endpoints.push(
-        `${base}/panel/api/clients/links/${encodeURIComponent(email)}`,
-      );
-    }
     if (subId) {
       endpoints.push(
         `${base}/panel/api/clients/subLinks/${encodeURIComponent(subId)}`,
+      );
+    }
+    if (email) {
+      endpoints.push(
+        `${base}/panel/api/clients/links/${encodeURIComponent(email)}`,
       );
     }
 
