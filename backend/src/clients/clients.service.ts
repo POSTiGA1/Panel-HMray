@@ -154,7 +154,7 @@ export class ClientsService {
               enable: payload.enable,
               expiryTimeMs: payload.expiryTime,
               limitIp: payload.limitIp,
-              totalBytes: BigInt(Math.round((payload.totalGB || 0) * GB)),
+              totalBytes: BigInt(Math.round(Number(payload.totalGB || 0))),
               providerExtras: { numericInboundIds: numericIds, payload },
             },
           });

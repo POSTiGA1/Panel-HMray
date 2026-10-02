@@ -18,7 +18,7 @@ import type { Admin, Paginated, Transaction } from "@/lib/types";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { Card, PageHeader, Badge, Spinner, ErrorBox } from "@/components/ui";
 import { useAuth } from "@/store/auth";
-import { useT } from "@/i18n";
+import { useLocale, useT } from "@/i18n";
 
 type LedgerQuota = {
   quotaMode: string;
@@ -90,6 +90,9 @@ function writeStoredPanelTab(adminId: string, id: string) {
 
 export default function TrafficPage() {
   const t = useT();
+  const { dir } = useLocale();
+  const PrevIcon = dir === "rtl" ? ChevronRight : ChevronLeft;
+  const NextIcon = dir === "rtl" ? ChevronLeft : ChevronRight;
   const admin = useAuth((s) => s.admin);
   const isSuper = admin?.role === "SUPER_ADMIN";
   const [adminId, setAdminId] = useState<string>("");
@@ -423,20 +426,22 @@ export default function TrafficPage() {
                   </div>
                   <div className="flex flex-1 justify-between sm:justify-end gap-2">
                     <button
+                      type="button"
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page === 1}
-                      className="relative inline-flex items-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                      aria-label={t("common.srPrevious")}
+                      className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <ChevronLeft size={16} />
-                      <span className="sr-only">{t("common.srPrevious")}</span>
+                      <PrevIcon size={16} aria-hidden />
                     </button>
                     <button
+                      type="button"
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       disabled={page >= totalPages}
-                      className="relative inline-flex items-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                      aria-label={t("common.srNext")}
+                      className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <ChevronRight size={16} />
-                      <span className="sr-only">{t("common.srNext")}</span>
+                      <NextIcon size={16} aria-hidden />
                     </button>
                   </div>
                 </div>

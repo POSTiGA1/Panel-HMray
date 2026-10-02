@@ -36,6 +36,24 @@ function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
 
+/** One client's usage since the previous sync. Folded into a single row per Tehran day. */
+export type UsageChargeLine = {
+  clientId: string;
+  clientUuid: string;
+  email: string;
+  delta: bigint;
+};
+
+/** Calendar day in Asia/Tehran so "today" matches the panel ledger dates. */
+export function tehranDayKey(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tehran',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 function capValue(value: unknown): number {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -529,7 +547,107 @@ export class AdminQuotaService implements OnModuleInit {
     return { balanceBefore: locked.balance, balanceAfter: after };
   }
 
+  /**
+   * Charge real usage and keep one ledger row per client per Tehran day.
+   * Later syncs add into that row instead of appending a new line each poll.
+   */
   async applyUsageCharge(
+    adminId: string,
+    panelId: string,
+    lines: UsageChargeLine[] | bigint,
+  ): Promise<void> {
+    if (typeof lines === 'bigint') {
+      await this.applyLegacyUsageCharge(adminId, panelId, lines);
+      return;
+    }
+    const pending = lines.filter(
+      (line) => line.delta > 0n && line.clientId && line.clientUuid,
+    );
+    if (!pending.length) return;
+    const admin = await this.loadAdmin(adminId);
+    if (this.skipTrafficAccounting(admin) || (await this.isPanelUnlimited(admin, panelId))) {
+      return;
+    }
+    const panel = await this.prisma.panel.findUnique({
+      where: { id: panelId },
+      select: { panelType: true },
+    });
+    const mode = await this.resolveTrafficMode(adminId, panel?.panelType, undefined, panelId);
+    if (mode !== 'USAGE') return;
+
+    const day = tehranDayKey();
+    for (const line of pending) {
+      const action = `DAILY_USAGE:${day}`;
+      const email = line.email.trim() || line.clientUuid;
+      const description = `Daily usage · ${email}`;
+      await this.prisma.$transaction(async (tx) => {
+        let before = 0;
+        let after = 0;
+        if (this.isPerPanel(admin)) {
+          const row = await tx.adminPanelQuota.findUnique({
+            where: { adminId_panelId: { adminId, panelId } },
+          });
+          before = row?.balance ?? 0;
+          after = Math.max(0, before - Number(line.delta));
+          await tx.adminPanelQuota.upsert({
+            where: { adminId_panelId: { adminId, panelId } },
+            create: {
+              adminId,
+              panelId,
+              balance: after,
+              totalAssigned: 0,
+            },
+            update: { balance: after },
+          });
+        } else {
+          const locked = await tx.admin.findUniqueOrThrow({
+            where: { id: adminId },
+            select: { balance: true },
+          });
+          before = locked.balance;
+          after = Math.max(0, locked.balance - Number(line.delta));
+          await tx.admin.update({
+            where: { id: adminId },
+            data: { balance: after },
+          });
+        }
+
+        await tx.trafficTransaction.upsert({
+          where: {
+            targetClientUuid_action: {
+              targetClientUuid: line.clientUuid,
+              action,
+            },
+          },
+          create: {
+            adminId,
+            panelId,
+            clientId: line.clientId,
+            targetClientUuid: line.clientUuid,
+            amount: line.delta,
+            type: 'USAGE_CHARGE',
+            action,
+            description,
+            balanceBefore: before,
+            balanceAfter: after,
+          },
+          update: {
+            amount: { increment: line.delta },
+            clientId: line.clientId,
+            panelId,
+            description,
+            balanceAfter: after,
+          },
+        });
+      });
+    }
+  }
+
+  /**
+   * Older premium bundles still pass one pooled delta. Keep that path working
+   * until those panels pick up per-client daily rows.
+   */
+  private async applyLegacyUsageCharge(
     adminId: string,
     panelId: string,
     delta: bigint,
@@ -543,7 +661,7 @@ export class AdminQuotaService implements OnModuleInit {
       where: { id: panelId },
       select: { panelType: true },
     });
-    const mode = await this.resolveTrafficMode(adminId, panel?.panelType);
+    const mode = await this.resolveTrafficMode(adminId, panel?.panelType, undefined, panelId);
     if (mode !== 'USAGE') return;
 
     await this.prisma.$transaction(async (tx) => {

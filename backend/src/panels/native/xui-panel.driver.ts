@@ -95,7 +95,8 @@ export class XuiPanelDriver implements PanelDriver {
     const payload = {
       id: String(extraPayload.id ?? extras.uuid ?? ''),
       email: String(extraPayload.email || input.username),
-      totalGB: extraPayload.totalGB ?? (input.totalBytes ? Number(input.totalBytes) / 1024 ** 3 : 0),
+      // 3x-ui's JSON field is named totalGB but the value is bytes.
+      totalGB: extraPayload.totalGB ?? Number(input.totalBytes ?? 0),
       expiryTime: extraPayload.expiryTime ?? input.expiryTimeMs ?? 0,
       limitIp: extraPayload.limitIp ?? input.limitIp,
       enable: extraPayload.enable ?? input.enable !== false,
@@ -138,7 +139,9 @@ export class XuiPanelDriver implements PanelDriver {
     const extras = input.providerExtras || {};
     const payload = (extras.payload as Record<string, any>) || {
       email: username,
-      totalGB: input.totalBytes ? Number(input.totalBytes) / 1024 ** 3 : undefined,
+      ...(input.totalBytes !== undefined
+        ? { totalGB: Number(input.totalBytes) }
+        : {}),
       expiryTime: input.expiryTimeMs,
       enable: input.enable,
       limitIp: input.limitIp,

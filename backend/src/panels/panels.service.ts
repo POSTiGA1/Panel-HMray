@@ -1273,8 +1273,8 @@ export class PanelsService implements OnModuleInit {
             group: c.group,
             flow: c.flow,
             enable: c.enable !== false,
-            up: c.traffic?.up || 0,
-            down: c.traffic?.down || 0,
+            up: c.traffic?.up || c.up || 0,
+            down: c.traffic?.down || c.down || 0,
             total: c.totalGB || 0,
             expiryTime: c.expiryTime || 0,
             limitIp: allowedUsersFromXuiClient(c),
@@ -1339,8 +1339,8 @@ export class PanelsService implements OnModuleInit {
               group: c.group,
               flow: c.flow,
               enable: stats.enable !== false,
-              up: stats.up || 0,
-              down: stats.down || 0,
+              up: stats.up || c.up || 0,
+              down: stats.down || c.down || 0,
               total: stats.total || 0,
               expiryTime: stats.expiryTime || 0,
               limitIp: allowedUsersFromXuiClient(c),
@@ -1670,7 +1670,15 @@ export class PanelsService implements OnModuleInit {
       }
 
       // 2. Sync Clients
-      const adminUsageCharges = new Map<string, bigint>();
+      const adminUsageCharges = new Map<
+        string,
+        Array<{
+          clientId: string;
+          clientUuid: string;
+          email: string;
+          delta: bigint;
+        }>
+      >();
 
       this.logger.debug(
         `[DIAGNOSTIC] Syncing ${unifiedClients.length} clients into Database (${mode})`,
@@ -1785,11 +1793,36 @@ export class PanelsService implements OnModuleInit {
             dbClientByEmail.set(trimmedEmail, created);
             syncReport.created++;
           } else {
-            // Usage Accounting Delta Calculation
+            // Usage Accounting Delta Calculation.
+            // A poll that reports 0 while we already have usage is a missing
+            // sample, not a reset. Writing those zeros makes the next poll
+            // charge the client's whole history and can empty the admin pool,
+            // which then disables every client on 3x-ui.
             const usedOldUp = dbClient.up;
             const usedOldDown = dbClient.down;
-            const upDelta = up > usedOldUp ? up - usedOldUp : 0n;
-            const downDelta = down > usedOldDown ? down - usedOldDown : 0n;
+            const storedUsed = usedOldUp + usedOldDown;
+            const incomingUsed = up + down;
+            const missingSample = incomingUsed === 0n && storedUsed > 0n;
+            // Counters already wiped to 0 while the panel still reports history.
+            // Adopt that history as the baseline instead of charging it all at once.
+            const counterRestore =
+              !missingSample &&
+              storedUsed === 0n &&
+              incomingUsed > 0n &&
+              dbClient.lastSyncedAt != null;
+            if (counterRestore) {
+              this.logger.warn(
+                `[SYNC] Counter restore for ${trimmedEmail}: keeping panel usage ${incomingUsed} without charging history`,
+              );
+            }
+            const upDelta =
+              !missingSample && !counterRestore && up > usedOldUp
+                ? up - usedOldUp
+                : 0n;
+            const downDelta =
+              !missingSample && !counterRestore && down > usedOldDown
+                ? down - usedOldDown
+                : 0n;
 
             panelUpDelta += upDelta;
             panelDownDelta += downDelta;
@@ -1798,14 +1831,18 @@ export class PanelsService implements OnModuleInit {
 
             if (
               delta > 0n &&
-              dbClient.admin &&
-              dbClient.admin.trafficMode === 'USAGE' &&
-              dbClient.adminId
+              dbClient.adminId &&
+              dbClient.uuid
             ) {
               const chargeKey = `${dbClient.adminId}:${panel.id}`;
-              const currentCharge =
-                adminUsageCharges.get(chargeKey) || 0n;
-              adminUsageCharges.set(chargeKey, currentCharge + delta);
+              const bucket = adminUsageCharges.get(chargeKey) || [];
+              bucket.push({
+                clientId: dbClient.id,
+                clientUuid: dbClient.uuid,
+                email: trimmedEmail,
+                delta,
+              });
+              adminUsageCharges.set(chargeKey, bucket);
             }
 
             // Conflict Detection (Ignore up/down normal usage)
@@ -1837,21 +1874,44 @@ export class PanelsService implements OnModuleInit {
               changedData.subId = unifiedClient.subId;
             if (dbClient.adminId !== resolvedAdminId)
               changedData.adminId = resolvedAdminId;
-            if (dbClient.enable !== enable) {
+            if (!missingSample && dbClient.enable !== enable) {
               changedData.enable = enable;
               if (!enable) {
                 const usedNew = up + down;
-                if (total > 0n && usedNew >= total)
-                  changedData.disableReason = 'TRAFFIC_LIMIT';
-                else if (expiryTime > 0n && BigInt(Date.now()) >= expiryTime)
-                  changedData.disableReason = 'EXPIRED';
-                else changedData.disableReason = 'MANUAL';
+                if (dbClient.disableReason !== 'BALANCE_EXHAUSTED') {
+                  if (total > 0n && usedNew >= total) {
+                    changedData.disableReason = 'TRAFFIC_LIMIT';
+                  } else if (expiryTime > 0n && BigInt(Date.now()) >= expiryTime) {
+                    changedData.disableReason = 'EXPIRED';
+                  } else if (dbClient.admin?.gracePeriodStart) {
+                    changedData.disableReason = 'BALANCE_EXHAUSTED';
+                  } else {
+                    changedData.disableReason = 'MANUAL';
+                  }
+                }
               } else {
                 changedData.disableReason = null;
               }
             }
-            if (dbClient.up !== up) changedData.up = up;
-            if (dbClient.down !== down) changedData.down = down;
+            if (
+              !missingSample &&
+              !enable &&
+              dbClient.admin?.gracePeriodStart &&
+              changedData.disableReason == null &&
+              dbClient.disableReason !== 'BALANCE_EXHAUSTED' &&
+              dbClient.disableReason !== 'TRAFFIC_LIMIT' &&
+              dbClient.disableReason !== 'EXPIRED'
+            ) {
+              const usedNew = up + down;
+              const hitQuota = total > 0n && usedNew >= total;
+              const hitExpiry =
+                expiryTime > 0n && BigInt(Date.now()) >= expiryTime;
+              if (!hitQuota && !hitExpiry) {
+                changedData.disableReason = 'BALANCE_EXHAUSTED';
+              }
+            }
+            if (!missingSample && dbClient.up !== up) changedData.up = up;
+            if (!missingSample && dbClient.down !== down) changedData.down = down;
             if (dbClient.total !== total) {
               if (total < dbClient.total) {
                 this.logger.warn(
@@ -2000,12 +2060,11 @@ export class PanelsService implements OnModuleInit {
         `[SYNC] Panel ${panel.name} Sync Report (${mode}): Created=${syncReport.created}, Updated=${syncReport.updated}, Repaired=${syncReport.repaired}, Skipped=${syncReport.skipped}, Failed=${syncReport.failed}`,
       );
 
-      // Apply Usage Charges for USAGE mode admins
-      for (const [chargeKey, totalDelta] of adminUsageCharges.entries()) {
-        if (totalDelta < 1048576n) continue;
+      // Fold each client's usage into one ledger row for today.
+      for (const [chargeKey, lines] of adminUsageCharges.entries()) {
         const [adminId, panelId] = chargeKey.split(':');
-        if (!adminId || !panelId) continue;
-        await this.adminQuota.applyUsageCharge(adminId, panelId, totalDelta);
+        if (!adminId || !panelId || !lines.length) continue;
+        await this.adminQuota.applyUsageCharge(adminId, panelId, lines);
       }
 
       // Orphan Cleanup — full sync only (avoids delete thrash on traffic polls)
@@ -4245,30 +4304,46 @@ export class PanelsService implements OnModuleInit {
   }
 
   private async suspendBalanceExhaustedClients(adminId: string) {
-    const clientsToSuspend = await this.prisma.client.findMany({
-      where: { adminId, enable: true },
-      take: 100,
-      include: {
-        inbounds: {
-          include: {
-            inbound: { include: { panel: true } },
+    let suspended = 0;
+    const failedIds: string[] = [];
+    for (let round = 0; round < 50; round++) {
+      const remaining = await this.adminQuota.remainingTrafficBytes(adminId);
+      if (!Number.isFinite(remaining) || remaining > 0) break;
+
+      const clientsToSuspend = await this.prisma.client.findMany({
+        where: {
+          adminId,
+          enable: true,
+          ...(failedIds.length ? { id: { notIn: failedIds } } : {}),
+        },
+        take: 100,
+        include: {
+          inbounds: {
+            include: {
+              inbound: { include: { panel: true } },
+            },
           },
         },
-      },
-    });
-    if (!clientsToSuspend.length) return;
+      });
+      if (!clientsToSuspend.length) break;
 
-    for (const client of clientsToSuspend) {
-      try {
-        await this.setClientEnableOnPanels(client, false);
-        await this.prisma.client.update({
-          where: { id: client.id },
-          data: { enable: false, disableReason: 'BALANCE_EXHAUSTED' },
-        });
-      } catch (error) {
-        console.error(`Failed to suspend client ${client.id}:`, error);
+      for (const client of clientsToSuspend) {
+        try {
+          await this.setClientEnableOnPanels(client, false);
+          await this.prisma.client.update({
+            where: { id: client.id },
+            data: { enable: false, disableReason: 'BALANCE_EXHAUSTED' },
+          });
+          suspended++;
+        } catch (error) {
+          failedIds.push(client.id);
+          this.logger.warn(
+            `Failed to suspend client ${client.id}: ${(error as Error)?.message || error}`,
+          );
+        }
       }
     }
+    if (!suspended) return;
     await this.prisma.auditLog.create({
       data: {
         adminId,
@@ -4276,7 +4351,7 @@ export class PanelsService implements OnModuleInit {
         entity: 'Client',
         entityId: adminId,
         details: {
-          message: `Suspended ${clientsToSuspend.length} clients due to balance exhaustion.`,
+          message: `Suspended ${suspended} clients due to balance exhaustion.`,
         },
       },
     });
