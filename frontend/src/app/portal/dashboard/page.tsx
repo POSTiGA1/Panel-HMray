@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
+  ClipboardList,
   Copy,
   Gift,
   Layers,
+  LayoutDashboard,
   Link2,
   LoaderCircle,
   LogOut,
@@ -47,8 +49,10 @@ import {
   staggerItem,
 } from "@/modules/storefront/design";
 import { usePortalTelegramGate } from "@/modules/storefront/tma/usePortalTelegramGate";
+import { formatServiceExpiry, isExpiringSoon } from "@/modules/storefront/tma/tma-service-utils";
 import { StorefrontLocaleProvider, useStorefrontLocale } from "@/modules/storefront/locale";
 import { CheckoutSheet, resolveBuyKindOptions } from "@/modules/storefront/PortalCheckoutSheet";
+import type { CustomerBuyKind } from "@/modules/storefront/types";
 import {
   PaygBuySheet,
   PaygHeroCard,
@@ -78,7 +82,7 @@ import {
 import { rememberStoreSlug, portalPathForSlug, shopPathForSlug } from "@/modules/storefront/store-slug";
 
 type FlowMode = "idle" | "buy" | "renew";
-type DashTab = "home" | "orders" | "alerts";
+type DashTab = "home" | "services" | "digital" | "payg" | "orders" | "alerts";
 type HomeSegment = "vpn" | "digital" | "payg";
 
 function PortalTopBarLabel() {
@@ -113,6 +117,7 @@ function CustomerDashboardInner() {
     requestSettlement,
   } = useCustomerSession();
   const { t, isFa } = useStorefrontLocale();
+  const reduceMotion = useReducedMotion();
 
   const [tab, setTab] = useState<DashTab>("home");
   const [flow, setFlow] = useState<FlowMode>("idle");
@@ -133,6 +138,8 @@ function CustomerDashboardInner() {
   const [copiedToken, setCopiedToken] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [segment, setSegment] = useState<HomeSegment>("vpn");
+  const [buyLock, setBuyLock] = useState<CustomerBuyKind | null>(null);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const [paygBuyOpen, setPaygBuyOpen] = useState(false);
   const [paygTopUpOpen, setPaygTopUpOpen] = useState(false);
   const [paygTopUpAmount, setPaygTopUpAmount] = useState<number | undefined>(undefined);
@@ -300,6 +307,7 @@ function CustomerDashboardInner() {
     setSelectedAddonIds([]);
     setCouponCode("");
     setSheetStep(0);
+    setBuyLock(null);
   };
 
   const onReceiptFile = async (file?: File | null) => {
@@ -457,20 +465,30 @@ function CustomerDashboardInner() {
       : []),
   ];
   const activeSegment: HomeSegment = segments.some((s) => s.id === segment) ? segment : "vpn";
+  const showDigitalNav = segments.some((s) => s.id === "digital");
+  const mini = gate.inTelegram;
+  let viewTab: DashTab = tab;
+  if (mini && tab === "alerts") viewTab = "home";
+  if (mini && tab === "digital" && !showDigitalNav) viewTab = "home";
+  if (mini && tab === "payg" && !showPaygSegment) viewTab = "home";
 
   const openPaygBuy = () => {
     resetFlow();
-    setTab("home");
-    setSegment("payg");
+    if (mini) setTab("payg");
+    else {
+      setTab("home");
+      setSegment("payg");
+    }
     setPaygJustActivated(false);
     setPaygBuyOpen(true);
   };
 
-  const startBuy = () => {
-    if (kindOptions.length === 1 && kindOptions[0].id === "payg") {
+  const startBuy = (lock?: CustomerBuyKind) => {
+    if (lock === "payg" || (!lock && kindOptions.length === 1 && kindOptions[0]?.id === "payg")) {
       openPaygBuy();
       return;
     }
+    setBuyLock(lock && lock !== "payg" ? lock : null);
     setFlow("buy");
     setSheetStep(0);
     setSelectedProduct(null);
@@ -478,19 +496,45 @@ function CustomerDashboardInner() {
     setCouponCode("");
   };
 
-  const bottomTabs = [
-    { id: "home", label: t("خانه", "Home"), icon: Package },
-    { id: "orders", label: t("سفارش", "Orders"), icon: ShoppingBag },
-    {
-      id: "alerts",
-      label: t("اعلان", "Alerts"),
-      icon: Bell,
-      badge: unreadCount || undefined,
-    },
-  ];
+  const bottomTabs = mini
+    ? [
+        { id: "home", label: t("داشبورد", "Dashboard"), icon: LayoutDashboard },
+        { id: "services", label: t("سرویس‌های من", "My services"), icon: Package },
+        ...(showDigitalNav
+          ? [{ id: "digital", label: t("دیجیتال", "Digital"), icon: Gift }]
+          : []),
+        ...(showPaygSegment
+          ? [{ id: "payg", label: t("مصرفی", "PAYG"), icon: Zap }]
+          : []),
+        { id: "orders", label: t("سفارشات", "Orders"), icon: ClipboardList },
+      ]
+    : [
+        { id: "home", label: t("خانه", "Home"), icon: Package },
+        { id: "orders", label: t("سفارش", "Orders"), icon: ShoppingBag },
+        {
+          id: "alerts",
+          label: t("اعلان", "Alerts"),
+          icon: Bell,
+          badge: unreadCount || undefined,
+        },
+      ];
+
+  const buyLabel =
+    viewTab === "digital"
+      ? t("خرید محصول دیجیتال", "Buy digital")
+      : viewTab === "payg"
+        ? t("خرید مصرفی", "Buy PAYG")
+        : t("خرید سرویس", "Buy service");
+
+  const renewSoon = mini
+    ? (data.services || [])
+        .filter((service) => service.status === "expired" || isExpiringSoon(service, 7))
+        .slice(0, 2)
+    : [];
 
   return (
     <StoreShell
+      mini={mini}
       store={{
         title: data.store?.title || "Customer Dashboard",
         slug: data.store?.slug || "",
@@ -500,21 +544,38 @@ function CustomerDashboardInner() {
         branding: data.branding,
         publishedTheme: data.publishedTheme || data.store?.publishedTheme,
       }}
-      topBar={<PortalTopBarLabel />}
+      topBar={mini ? undefined : <PortalTopBarLabel />}
       actions={
-        <button
-          type="button"
-          onClick={() => logout.mutateAsync().then(goShop)}
-          className="store-card store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border text-[color:var(--store-muted)] transition-colors duration-200 hover:text-rose-500 active:scale-95"
-          aria-label={t("خروج", "Log out")}
-          title={t("خروج", "Log out")}
-        >
-          <LogOut size={18} aria-hidden />
-        </button>
+        <>
+          {mini ? (
+            <button
+              type="button"
+              onClick={() => setAlertsOpen(true)}
+              className="store-card store-focus-ring relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border text-[color:var(--store-muted)] transition-colors duration-200 hover:text-[color:var(--store-fg)]"
+              aria-label={t("اعلان‌ها", "Alerts")}
+            >
+              <Bell size={18} aria-hidden />
+              {unreadCount > 0 ? (
+                <span className="absolute -end-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => logout.mutateAsync().then(goShop)}
+            className="store-card store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border text-[color:var(--store-muted)] transition-colors duration-200 hover:text-rose-500 active:scale-95"
+            aria-label={t("خروج", "Log out")}
+            title={t("خروج", "Log out")}
+          >
+            <LogOut size={18} aria-hidden />
+          </button>
+        </>
       }
     >
       <MotionPage className={`mx-auto w-full max-w-3xl ${isFa ? "font-[Vazirmatn,Tahoma,sans-serif]" : ""}`}>
-        {tab === "home" ? (
+        {viewTab === "home" && !mini ? (
           <section className="mb-5 sm:mb-7">
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-[color:var(--store-muted)]">
@@ -530,7 +591,7 @@ function CustomerDashboardInner() {
               <StatTile label={t("سفارش در صف", "Orders in queue")} value={pendingCount} tone="warn" />
               <button
                 type="button"
-                onClick={startBuy}
+                onClick={() => startBuy()}
                 className="col-span-2 flex min-h-[72px] cursor-pointer items-center justify-center gap-2 rounded-[1.35rem] bg-[color:var(--store-primary)] px-4 text-[15px] font-bold text-white shadow-[0_14px_32px_-16px_var(--store-primary)] transition active:scale-[0.98] sm:col-span-2"
               >
                 <Plus size={18} /> {t("سفارش جدید", "New order")}
@@ -539,35 +600,92 @@ function CustomerDashboardInner() {
           </section>
         ) : null}
 
-        {/* Desktop tabs */}
-        <div className="store-card mb-5 hidden gap-1 rounded-[1.35rem] border p-1.5 shadow-sm lg:mb-7 lg:flex lg:max-w-md">
+        {mini && viewTab === "home" ? (
+          <section className="mb-4">
+            <p className="text-[13px] font-medium text-[color:var(--store-muted)]">{t("سلام", "Hello")}</p>
+            <h1 className="mt-0.5 truncate text-[1.35rem] font-bold tracking-tight">
+              {data.profile?.name || t("مشتری عزیز", "Customer")}
+            </h1>
+            <p className="mt-1 text-[13px] text-[color:var(--store-muted)]">
+              {t(`${activeCount} سرویس فعال`, `${activeCount} active services`)}
+            </p>
+          </section>
+        ) : null}
+
+        {mini ? (
+          <button
+            type="button"
+            onClick={() =>
+              startBuy(
+                viewTab === "digital"
+                  ? "digital"
+                  : viewTab === "payg"
+                    ? "payg"
+                    : kindOptions.some((k) => k.id === "vpn")
+                      ? "vpn"
+                      : undefined,
+              )
+            }
+            className="store-focus-ring mb-4 flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-[color:var(--store-primary)] px-4 text-[15px] font-bold text-white shadow-[0_12px_28px_-16px_var(--store-primary)] transition duration-200 active:scale-[0.98]"
+          >
+            <Plus size={18} aria-hidden />
+            {buyLabel}
+          </button>
+        ) : null}
+
+        {mini && viewTab === "home" && renewSoon.length ? (
+          <div className="mb-4 space-y-2">
+            {renewSoon.map((service) => (
+              <button
+                key={service.id}
+                type="button"
+                onClick={() => startRenew(service)}
+                className="store-card store-focus-ring flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-2xl border px-3 text-start transition duration-200 active:scale-[0.99]"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                  {service.remark || service.productName || service.email}
+                </span>
+                <span className="shrink-0 text-xs text-[color:var(--store-muted)]">
+                  {service.status === "expired"
+                    ? t("منقضی", "Expired")
+                    : formatServiceExpiry(service, t)}
+                </span>
+                <span className="shrink-0 text-xs font-bold text-[color:var(--store-primary)]">
+                  {t("تمدید", "Renew")}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className={`store-card mb-5 hidden gap-1 rounded-[1.35rem] border p-1.5 shadow-sm lg:mb-7 lg:flex lg:max-w-md ${mini ? "!hidden" : ""}`}>
           {bottomTabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setTab(item.id as DashTab)}
-              aria-current={tab === item.id ? "page" : undefined}
+              aria-current={viewTab === item.id ? "page" : undefined}
               className={`store-focus-ring flex-1 cursor-pointer rounded-[1.1rem] px-3 py-2.5 text-[13px] font-semibold transition-colors duration-200 ${
-                tab === item.id
+                viewTab === item.id
                   ? "bg-[color:var(--store-primary)] text-white"
                   : "text-[color:var(--store-muted)] hover:text-[color:var(--store-fg)]"
               }`}
             >
               {item.label}
-              {item.badge ? ` (${item.badge})` : ""}
+              {"badge" in item && item.badge ? ` (${item.badge})` : ""}
             </button>
           ))}
         </div>
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 10 }}
+            key={viewTab}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25 }}
+            exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
+            transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
           >
-            {tab === "home" ? (
+            {viewTab === "home" && !mini ? (
               <HomeTab
                 segments={segments}
                 segment={activeSegment}
@@ -612,16 +730,64 @@ function CustomerDashboardInner() {
                 onAskHide={setHideTarget}
               />
             ) : null}
-            {tab === "orders" ? (
+            {mini && (viewTab === "services" || viewTab === "digital" || viewTab === "payg") ? (
+              <HomeTab
+                compact
+                focus={viewTab}
+                segments={segments}
+                segment={activeSegment}
+                onSegmentChange={setSegment}
+                digitalOrders={digitalOrders}
+                paygContent={
+                  <PaygTab
+                    payg={payg}
+                    loading={paygQuery.isLoading}
+                    catalog={paygCatalogQuery.data}
+                    cancelRefundEnabled={cancelRefundEnabled}
+                    pendingCancelClientIds={pendingCancelClientIds}
+                    requestCancel={requestCancel}
+                    telegramLinked={telegramLinked}
+                    justActivated={paygJustActivated}
+                    onBuy={openPaygBuy}
+                    onTopUp={() => {
+                      setPaygTopUpAmount(undefined);
+                      setPaygTopUpOpen(true);
+                    }}
+                    onAskCancel={setCancelTarget}
+                  />
+                }
+                data={data}
+                showToken={false}
+                setShowToken={setShowToken}
+                copiedToken={copiedToken}
+                setCopiedToken={setCopiedToken}
+                claimService={claimService}
+                hideService={hideService}
+                categories={categories}
+                onRenew={startRenew}
+                cancelRefundEnabled={cancelRefundEnabled}
+                pendingCancelClientIds={pendingCancelClientIds}
+                requestCancel={requestCancel}
+                walletSettlementEnabled={false}
+                wallet={walletQuery.data}
+                walletLoading={walletQuery.isLoading}
+                settlements={settlementsQuery.data}
+                requestSettlement={requestSettlement}
+                onAskCancel={setCancelTarget}
+                onAskHide={setHideTarget}
+              />
+            ) : null}
+            {viewTab === "orders" ? (
               <OrdersTab
                 data={data}
                 onAskCancelOrder={setOrderCancelTarget}
-                onBuy={startBuy}
+                onBuy={() => startBuy()}
                 cancelRequests={cancelRequestsQuery.data || []}
                 resolveCancelTitle={resolveCancelTitle}
+                compact={mini}
               />
             ) : null}
-            {tab === "alerts" ? (
+            {viewTab === "alerts" ? (
               <AlertsTab
                 data={data}
                 markNotificationRead={markNotificationRead}
@@ -634,9 +800,26 @@ function CustomerDashboardInner() {
 
       <BottomTabBar
         tabs={bottomTabs}
-        value={tab}
+        value={viewTab}
         onChange={(id) => setTab(id as DashTab)}
+        iconsOnly={mini}
+        always={mini}
       />
+
+      {mini ? (
+        <Sheet
+          open={alertsOpen}
+          onClose={() => setAlertsOpen(false)}
+          title={t("اعلان‌ها", "Alerts")}
+        >
+          <AlertsTab
+            embedded
+            data={data}
+            markNotificationRead={markNotificationRead}
+            markAllNotificationsRead={markAllNotificationsRead}
+          />
+        </Sheet>
+      ) : null}
 
       <CheckoutSheet
           open={flow !== "idle"}
@@ -671,7 +854,13 @@ function CustomerDashboardInner() {
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
           hasTelegramUserId={!!tgUserId}
-          kindOptions={flow === "buy" ? kindOptions : []}
+          kindOptions={
+            flow === "buy"
+              ? buyLock
+                ? kindOptions.filter((k) => k.id === buyLock)
+                : kindOptions
+              : []
+          }
           onPickPayg={openPaygBuy}
         />
 
@@ -1183,6 +1372,8 @@ function HomeTab({
   requestSettlement,
   onAskCancel,
   onAskHide,
+  compact = false,
+  focus = "all",
 }: {
   onAskCancel?: (target: CancelTarget) => void;
   onAskHide?: (service: CustomerService) => void;
@@ -1208,6 +1399,8 @@ function HomeTab({
   walletLoading?: boolean;
   settlements?: CustomerWalletSettlement[];
   requestSettlement?: ReturnType<typeof useCustomerSession>["requestSettlement"];
+  compact?: boolean;
+  focus?: "all" | "services" | "digital" | "payg";
 }) {
   const { t, isFa } = useStorefrontLocale();
   const services = data.services || [];
@@ -1252,8 +1445,13 @@ function HomeTab({
     }
   };
 
+  const showDigital = compact ? focus === "digital" : segment === "digital";
+  const showPayg = compact ? focus === "payg" : segment === "payg";
+  const showVpn = compact ? focus === "services" : segment === "vpn";
+
   return (
-    <div className="space-y-6 lg:space-y-8">
+    <div className="space-y-5 lg:space-y-8">
+      {!compact ? (
       <Surface>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1289,8 +1487,9 @@ function HomeTab({
           </div>
         </div>
       </Surface>
+      ) : null}
 
-      {walletSettlementEnabled ? (
+      {!compact && walletSettlementEnabled ? (
         <WalletSettlementSurface
           wallet={wallet}
           loading={walletLoading}
@@ -1299,32 +1498,36 @@ function HomeTab({
         />
       ) : null}
 
-      <SegmentBar segments={segments} value={segment} onChange={onSegmentChange} />
+      {!compact ? <SegmentBar segments={segments} value={segment} onChange={onSegmentChange} /> : null}
 
-      {segment === "digital" ? (
+      {showDigital ? (
         <div>
           <SectionHeading
             title={t("محصولات دیجیتال", "Digital products")}
-            subtitle={t("کدها و محصولات تحویلی شما", "Your delivered codes and items")}
+            subtitle={compact ? undefined : t("کدها و محصولات تحویلی شما", "Your delivered codes and items")}
           />
           {digitalOrders.length ? (
             <DigitalOrdersList orders={digitalOrders} />
           ) : (
             <EmptyState
               title={t("هنوز محصول دیجیتالی نخریده‌اید.", "No digital products yet.")}
-              hint={t("از «سفارش جدید» یک محصول دیجیتال انتخاب کنید.", "Pick a digital product from “New order”.")}
+              hint={
+                compact
+                  ? t("از دکمه خرید بالا یک محصول انتخاب کنید.", "Use the buy button above.")
+                  : t("از «سفارش جدید» یک محصول دیجیتال انتخاب کنید.", "Pick a digital product from “New order”.")
+              }
             />
           )}
         </div>
       ) : null}
 
-      {segment === "payg" ? paygContent : null}
+      {showPayg ? paygContent : null}
 
-      {segment === "vpn" ? (
+      {showVpn ? (
       <div>
         <SectionHeading
           title={t("سرویس‌ها", "Services")}
-          subtitle={t("اشتراک‌های فعال و قبلی شما", "Your active and past subscriptions")}
+          subtitle={compact ? undefined : t("اشتراک‌های فعال و قبلی شما", "Your active and past subscriptions")}
           action={
             <button
               type="button"
@@ -1332,12 +1535,16 @@ function HomeTab({
                 setLinkOpen((v) => !v);
                 setLinkError("");
               }}
-              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-bold dark:border-zinc-700"
+              aria-label={linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
+              title={linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
+              className={
+                compact
+                  ? "store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 text-[color:var(--store-muted)] dark:border-zinc-700"
+                  : "inline-flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold dark:border-zinc-700"
+              }
             >
-              <Link2 size={13} />
-              {linkOpen
-                ? t("بستن", "Close")
-                : t("افزودن با لینک ساب", "Add by sub link")}
+              <Link2 size={compact ? 16 : 13} aria-hidden />
+              {compact ? null : linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
             </button>
           }
         />
@@ -1447,7 +1654,8 @@ function HomeTab({
             return (
               <motion.div key={service.id} variants={staggerItem}>
                 <ServiceListItem
-                  defaultOpen={services.length === 1 && serviceIndex === 0}
+                  defaultOpen={!compact && services.length === 1 && serviceIndex === 0}
+                  quickRenew={compact}
                   service={service}
                   subLink={link}
                   onCopy={() => {
@@ -1484,7 +1692,11 @@ function HomeTab({
           {!services.length ? (
             <EmptyState
               title={t("هنوز سرویسی ندارید.", "No services yet.")}
-              hint={t("با سفارش جدید اولین اشتراک خود را فعال کنید.", "Place a new order to activate your first service.")}
+              hint={
+                compact
+                  ? t("از دکمه خرید بالا سرویس بگیرید.", "Use the buy button above.")
+                  : t("با سفارش جدید اولین اشتراک خود را فعال کنید.", "Place a new order to activate your first service.")
+              }
             />
           ) : null}
         </div>
@@ -1506,12 +1718,14 @@ function OrdersTab({
   onBuy,
   cancelRequests,
   resolveCancelTitle,
+  compact = false,
 }: {
   data: CustomerDashboard;
   onAskCancelOrder: (order: CustomerOrder) => void;
   onBuy: () => void;
   cancelRequests: CustomerCancelRequest[];
   resolveCancelTitle: (row: CustomerCancelRequest) => string;
+  compact?: boolean;
 }) {
   const { t, isFa } = useStorefrontLocale();
   const orders = data.orders || [];
@@ -1520,15 +1734,17 @@ function OrdersTab({
     <div className="space-y-4 lg:space-y-6">
       <SectionHeading
         title={t("سفارش‌ها", "Orders")}
-        subtitle={t("پیگیری و مدیریت درخواست‌ها", "Track and manage your requests")}
+        subtitle={compact ? undefined : t("پیگیری و مدیریت درخواست‌ها", "Track and manage your requests")}
         action={
-          <button
-            type="button"
-            onClick={onBuy}
-            className="inline-flex items-center gap-1 rounded-full bg-[color:var(--store-primary)] px-3.5 py-2 text-xs font-bold text-white"
-          >
-            <ShoppingBag size={13} /> {t("خرید", "Buy")}
-          </button>
+          compact ? undefined : (
+            <button
+              type="button"
+              onClick={onBuy}
+              className="inline-flex min-h-11 items-center gap-1 rounded-full bg-[color:var(--store-primary)] px-3.5 text-xs font-bold text-white"
+            >
+              <ShoppingBag size={13} /> {t("خرید", "Buy")}
+            </button>
+          )
         }
       />
       <div className="flex flex-col gap-2.5 sm:gap-3">
@@ -1602,10 +1818,12 @@ function AlertsTab({
   data,
   markNotificationRead,
   markAllNotificationsRead,
+  embedded = false,
 }: {
   data: CustomerDashboard;
   markNotificationRead: ReturnType<typeof useCustomerSession>["markNotificationRead"];
   markAllNotificationsRead: ReturnType<typeof useCustomerSession>["markAllNotificationsRead"];
+  embedded?: boolean;
 }) {
   const { t, isFa } = useStorefrontLocale();
   const [filter, setFilter] = useState<"all" | "unread">("all");
@@ -1633,6 +1851,19 @@ function AlertsTab({
 
   return (
     <div className="space-y-4 lg:space-y-5">
+      {embedded ? (
+        unread > 0 ? (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => markAllNotificationsRead.mutate()}
+              className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[color:var(--store-primary)] transition-colors duration-200 hover:bg-[color:var(--store-primary)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--store-primary)]/40"
+            >
+              {t("خواندن همه", "Mark all read")}
+            </button>
+          </div>
+        ) : null
+      ) : (
       <SectionHeading
         title={t("اعلان‌ها", "Alerts")}
         action={
@@ -1647,6 +1878,7 @@ function AlertsTab({
           ) : null
         }
       />
+      )}
 
       <div role="tablist" className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/60">
         {(["all", "unread"] as const).map((f) => (

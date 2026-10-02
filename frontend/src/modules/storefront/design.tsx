@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Moon, Sun } from "lucide-react";
-import { motion, type Transition } from "framer-motion";
+import { motion, useReducedMotion, type Transition } from "framer-motion";
 import { clsx } from "clsx";
 
 /** Soft spring — sheets / panels (Soft UI Evolution) */
@@ -341,6 +341,8 @@ export function BottomTabBar({
   value,
   onChange,
   layoutGroup = "store",
+  iconsOnly = false,
+  always = false,
 }: {
   tabs: Array<{
     id: string;
@@ -351,10 +353,13 @@ export function BottomTabBar({
   value: string;
   onChange: (id: string) => void;
   layoutGroup?: string;
+  iconsOnly?: boolean;
+  always?: boolean;
 }) {
+  const reduce = useReducedMotion();
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 lg:hidden"
+      className={clsx("fixed inset-x-0 bottom-0 z-40", !always && "lg:hidden")}
       style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px), var(--tg-safe-bottom, 0px))" }}
     >
       <div className="mx-auto max-w-lg px-3">
@@ -368,18 +373,20 @@ export function BottomTabBar({
                 type="button"
                 onClick={() => onChange(tab.id)}
                 className={clsx(
-                  "store-focus-ring relative flex min-h-[54px] min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[1.2rem] px-1 py-1.5 text-[11px] font-semibold transition-colors duration-200 active:scale-95 motion-reduce:active:scale-100",
+                  "store-focus-ring relative flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-[1.2rem] px-1 transition-colors duration-200 active:scale-95 motion-reduce:active:scale-100",
+                  iconsOnly ? "py-2" : "flex-col gap-0.5 py-1.5 text-[11px] font-semibold",
                   active ? "text-[color:var(--store-primary)]" : "text-[color:var(--store-muted)]",
                 )}
                 aria-current={active ? "page" : undefined}
                 aria-label={tab.label}
+                title={tab.label}
               >
                 {active ? (
                   <motion.span
                     layoutId={`${layoutGroup}-bottom-tab`}
                     aria-hidden
                     className="absolute inset-0 rounded-[1.2rem] bg-[color:var(--store-primary)]/12"
-                    transition={{ type: "spring", stiffness: 480, damping: 38 }}
+                    transition={reduce ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
                   />
                 ) : null}
                 <span className="relative">
@@ -390,7 +397,9 @@ export function BottomTabBar({
                     </span>
                   ) : null}
                 </span>
-                <span className="relative max-w-full truncate">{tab.label}</span>
+                {iconsOnly ? <span className="sr-only">{tab.label}</span> : (
+                  <span className="relative max-w-full truncate">{tab.label}</span>
+                )}
               </button>
             );
           })}

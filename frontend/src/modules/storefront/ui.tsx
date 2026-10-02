@@ -1054,8 +1054,9 @@ type ServiceCardProps = Parameters<typeof ServiceCard>[0];
 /** Collapsible list row for the portal services list; expands into the full ServiceCard body. */
 export function ServiceListItem({
   defaultOpen = false,
+  quickRenew = false,
   ...props
-}: Omit<ServiceCardProps, "embedded"> & { defaultOpen?: boolean }) {
+}: Omit<ServiceCardProps, "embedded"> & { defaultOpen?: boolean; quickRenew?: boolean }) {
   const { t } = useStorefrontLocale();
   const [open, setOpen] = useState(defaultOpen);
   const { service, onHide, hiding } = props;
@@ -1100,11 +1101,12 @@ export function ServiceListItem({
           : "hover:shadow-[0_10px_28px_-22px_rgba(15,23,42,0.4)]"
       }`}
     >
+      <div className="flex items-stretch">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="store-focus-ring flex min-h-[68px] w-full cursor-pointer items-center gap-3 px-4 py-3 text-start sm:px-5"
+        className="store-focus-ring flex min-h-[68px] min-w-0 flex-1 cursor-pointer items-center gap-3 px-4 py-3 text-start sm:px-5"
       >
         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--store-primary)]/10 text-[15px] font-black text-[color:var(--store-primary)]">
           {initial}
@@ -1153,6 +1155,16 @@ export function ServiceListItem({
           <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
+      {quickRenew ? (
+        <button
+          type="button"
+          onClick={props.onRenew}
+          className="store-focus-ring my-3 me-3 inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-xl bg-[color:var(--store-primary)] px-3 text-xs font-bold text-white transition duration-200 active:scale-95"
+        >
+          {t("تمدید", "Renew")}
+        </button>
+      ) : null}
+      </div>
 
       <AnimatePresence initial={false}>
         {open ? (

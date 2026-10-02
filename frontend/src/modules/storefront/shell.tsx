@@ -30,12 +30,15 @@ export function StoreShell({
   children,
   topBar,
   actions,
+  mini = false,
 }: {
   store?: StorefrontStore;
   children: React.ReactNode;
   topBar?: React.ReactNode;
   /** Extra app-bar buttons (e.g. logout), rendered before theme/language controls. */
   actions?: React.ReactNode;
+  /** Telegram mini app: short page, no “support links below” note. */
+  mini?: boolean;
 }) {
   const brandingPrimary = store?.branding?.primaryColor || "";
   const settings = store?.publishedTheme?.settings;
@@ -56,6 +59,7 @@ export function StoreShell({
           skin={skin}
           topBar={topBar}
           actions={actions}
+          mini={mini}
         >
           {children}
         </StoreShellInner>
@@ -72,6 +76,7 @@ function StoreShellInner({
   skin,
   topBar,
   actions,
+  mini = false,
   children,
 }: {
   store?: StorefrontStore;
@@ -81,6 +86,7 @@ function StoreShellInner({
   skin: StorefrontSkinId;
   topBar?: React.ReactNode;
   actions?: React.ReactNode;
+  mini?: boolean;
   children: React.ReactNode;
 }) {
   const { isFa } = useStorefrontLocale();
@@ -193,6 +199,7 @@ function StoreShellInner({
             </header>
             <main className="relative mx-auto w-full max-w-4xl px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-4 sm:px-8 lg:px-10 lg:pb-16 lg:pt-8">
               {children}
+              {mini ? null : (
               <section className="store-card mt-10 rounded-[var(--store-radius)] border p-5 lg:hidden" aria-label={title}>
                 <div className="flex items-center gap-3">
                   {brandMark}
@@ -203,7 +210,12 @@ function StoreShellInner({
                 </p>
                 <LumenContactColumn store={store} copy={copy} compact />
               </section>
-              <StoreFooter note={store?.branding?.footerText || copy.footerNote} />
+              )}
+              {mini ? (
+                <StoreSupportChips supportLinks={store?.branding?.supportLinks} iconsOnly />
+              ) : (
+                <StoreFooter note={store?.branding?.footerText || copy.footerNote} />
+              )}
             </main>
           </div>
         </div>
@@ -257,7 +269,11 @@ function StoreShellInner({
         }`}
       >
         {children}
-        <StoreFooter note={store?.branding?.footerText || copy.footerNote} />
+        {mini ? (
+          <StoreSupportChips supportLinks={store?.branding?.supportLinks} iconsOnly />
+        ) : (
+          <StoreFooter note={store?.branding?.footerText || copy.footerNote} />
+        )}
       </main>
     </div>
   );
@@ -370,9 +386,34 @@ type SupportLinks = {
   emailAddress?: string;
 } | null | undefined;
 
-export function StoreSupportChips({ supportLinks }: { supportLinks?: SupportLinks }) {
+export function StoreSupportChips({
+  supportLinks,
+  iconsOnly = false,
+}: {
+  supportLinks?: SupportLinks;
+  iconsOnly?: boolean;
+}) {
   const links = normalizeSupportLinks(supportLinks);
   if (!links.length) return null;
+  if (iconsOnly) {
+    return (
+      <div className="mt-6 flex items-center justify-center gap-2">
+        {links.map((link) => (
+          <a
+            key={link.label}
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={link.label}
+            title={link.label}
+            className="store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-[color:var(--store-panel-border)] bg-[color:var(--store-panel)] text-[color:var(--store-muted)] transition duration-200 hover:text-[color:var(--store-fg)]"
+          >
+            <link.icon size={18} aria-hidden />
+          </a>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
       {links.map((link) => (
