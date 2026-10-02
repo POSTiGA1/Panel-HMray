@@ -488,7 +488,7 @@ function CustomerDashboardInner() {
       openPaygBuy();
       return;
     }
-    setBuyLock(lock && lock !== "payg" ? lock : null);
+    setBuyLock(lock ?? null);
     setFlow("buy");
     setSheetStep(0);
     setSelectedProduct(null);
