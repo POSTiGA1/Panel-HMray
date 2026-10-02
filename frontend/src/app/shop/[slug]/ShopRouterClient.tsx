@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { LoaderCircle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { publicApi, setCustomerSessionToken, getCustomerSessionToken } from "@/lib/api";
+import { publicApi, setCustomerSessionToken } from "@/lib/api";
 import {
   forceTelegramMiniApp,
   hasTelegramInitData,
@@ -69,27 +69,29 @@ function ShopRouter() {
         }, 1000);
       }
 
-      if (!getCustomerSessionToken()) {
-        let tries = 0;
-        while (!cancelled && tries < 40) {
-          if (hasTelegramInitData()) {
-            const initData = window.Telegram?.WebApp?.initData || "";
-            if (initData) {
-              try {
-                await silentLogin.mutateAsync({ slug, initData });
-              } catch {
-                /* show web shop anyway */
-              }
+      // Always exchange this bot's initData. A token from another store on the
+      // same panel domain would otherwise open the wrong portal.
+      let signedIn = false;
+      let tries = 0;
+      while (!cancelled && tries < 40) {
+        if (hasTelegramInitData()) {
+          const initData = window.Telegram?.WebApp?.initData || "";
+          if (initData) {
+            try {
+              await silentLogin.mutateAsync({ slug, initData });
+              signedIn = true;
+            } catch {
+              setCustomerSessionToken(null);
             }
-            break;
           }
-          tries += 1;
-          await new Promise((r) => window.setTimeout(r, 100));
+          break;
         }
+        tries += 1;
+        await new Promise((r) => window.setTimeout(r, 100));
       }
 
-      if (!cancelled && getCustomerSessionToken()) {
-        router.replace(portalPathForSlug(slug, "dashboard"));
+      if (!cancelled && signedIn) {
+        router.replace(`${portalPathForSlug(slug, "dashboard")}?tg=1`);
         return;
       }
 

@@ -275,9 +275,10 @@ export class StoreTelegramService implements OnModuleInit {
   private publicBaseUrl(store: {
     domain?: { domain: string; status: string } | null;
   }) {
+    // VERIFIED is DNS-only. A mini app / webhook on that host fails TLS
+    // while the bot chat (already pointed at the panel domain) still works.
     const custom =
-      store.domain?.domain &&
-      (store.domain.status === 'SSL_ACTIVE' || store.domain.status === 'VERIFIED')
+      store.domain?.domain && store.domain.status === 'SSL_ACTIVE'
         ? store.domain.domain
         : null;
     const panel = String(process.env.PANEL_DOMAIN || process.env.DOMAIN || '')

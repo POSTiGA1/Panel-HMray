@@ -345,7 +345,15 @@ function CustomerDashboardInner() {
       </div>
     );
   }
-  if (error || !data) return null;
+  if (error || !data) {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-sm text-zinc-600 dark:text-zinc-300">
+          {t("ورود به فروشگاه انجام نشد. از دکمه مینی‌اپ ربات دوباره باز کنید.", "Could not open this store. Open it again from the bot Mini App button.")}
+        </p>
+      </div>
+    );
+  }
 
   const primary = data.branding?.primaryColor || "#2563eb";
   const products = data.products || [];

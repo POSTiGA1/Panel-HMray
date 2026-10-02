@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { publicApi, setCustomerSessionToken, getCustomerSessionToken } from "@/lib/api";
+import { slugFromPathname } from "@/modules/storefront/store-slug";
 import {
   applyTelegramFullscreen,
   applyTelegramSafeArea,
   forceTelegramMiniApp,
   isTelegramContext,
+  isTelegramUserAgent,
   loadTelegramScript,
 } from "./useTelegramWebApp";
 
@@ -53,16 +55,33 @@ export function usePortalTelegramGate(opts?: { redirectSlug?: string | null }) {
     const run = async () => {
       if (typeof window === "undefined") return;
 
-      const inTg = forceTelegramMiniApp() || isTelegramContext();
+      const inTg = forceTelegramMiniApp() || isTelegramContext() || isTelegramUserAgent();
+      const params = new URLSearchParams(window.location.search);
+      const knownSlug =
+        opts?.redirectSlug || slugFromPathname(window.location.pathname) || params.get("slug") || "";
 
-      // Already signed in (web or prior TG session)
-      if (getCustomerSessionToken()) {
-        if (inTg) {
-          setPhase("done");
-        } else {
-          setPhase("skip");
-        }
+      // Web portal keeps an existing token. Inside Telegram, a token from another
+      // store on the same panel domain must not skip this bot's sign-in.
+      if (getCustomerSessionToken() && !inTg) {
+        setPhase("skip");
         return;
+      }
+      if (getCustomerSessionToken() && inTg) {
+        try {
+          const dash = (await publicApi.get("/store/customer/session")).data as {
+            store?: { slug?: string };
+          };
+          const sessionSlug = String(dash?.store?.slug || "");
+          if (!knownSlug || !sessionSlug || sessionSlug === knownSlug) {
+            queryClient.setQueryData(["customer-session"], dash);
+            setResolvedSlug(sessionSlug || knownSlug || null);
+            setPhase("done");
+            return;
+          }
+        } catch {
+          /* stale token — sign in with this bot */
+        }
+        setCustomerSessionToken(null);
       }
 
       // Browser / web portal — show token form
@@ -72,8 +91,6 @@ export function usePortalTelegramGate(opts?: { redirectSlug?: string | null }) {
       }
 
       setPhase("checking");
-      const params = new URLSearchParams(window.location.search);
-      const knownSlug = opts?.redirectSlug || params.get("slug") || "";
       // Domain lookup runs alongside the Telegram script download instead of after it.
       const slugPromise: Promise<string> = knownSlug
         ? Promise.resolve(knownSlug)
