@@ -165,6 +165,14 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
+
+  // nginx pools upstream keep-alive sockets (65s). Node's default 5s idle close
+  // races that pool and nginx answers 502 without retrying POSTs (backup uploads).
+  // requestTimeout 0: nginx already bounds slow clients; large uploads exceed 300s.
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 75_000;
+  server.headersTimeout = 76_000;
+  server.requestTimeout = 0;
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger UI on http://localhost:${port}/api`);
 }

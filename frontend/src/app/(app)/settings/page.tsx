@@ -422,18 +422,25 @@ function BackupRestoreCard() {
     
     try {
       const res = await api.post("/backups/analyze-upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 30 * 60 * 1000,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
       });
       setRestoreAnalysis(res.data);
     } catch (err: any) {
-      const status = err?.response?.status;
+      const status: number | undefined = err?.response?.status;
       const serverMsg = err?.response?.data?.message;
       const msg =
         status === 413
           ? t("settings.analyzeTooLarge")
           : (typeof serverMsg === "string" && serverMsg) ||
             (Array.isArray(serverMsg) ? serverMsg.join(", ") : null) ||
-            t("settings.analyzeFailed");
+            (!status
+              ? t("settings.analyzeNetwork")
+              : status >= 500
+                ? t("settings.analyzeGateway", { status })
+                : `${t("settings.analyzeFailed")} (HTTP ${status})`);
       toast(typeof msg === "string" ? msg : t("settings.analyzeFailed"), "error");
     } finally {
       setIsRestoring(false);

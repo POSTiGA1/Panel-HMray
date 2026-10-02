@@ -69,6 +69,15 @@ export class BackupsService {
     return this.backupsDir;
   }
 
+  /** The premium volume is always mounted; Community installs leave it empty. */
+  private hasPremiumBundleOnDisk(): boolean {
+    try {
+      return fs.readdirSync('/opt/hmpanel/premium').length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** Prefer Nest response body over generic "Bad Request Exception". */
   private errorMessage(error: unknown): string {
     if (!error) return 'Unknown error';
@@ -203,9 +212,19 @@ export class BackupsService {
         this.logger.log('Exporting database via docker exec...');
         const dbUser = process.env.POSTGRES_USER || 'panel_user';
         fs.mkdirSync(tempDir, { recursive: true });
+        // pipefail: without it a failed pg_dumpall still exits 0 via gzip and
+        // ships an empty database.sql.gz that restore then applies.
         await execPromise(
-          `docker exec hmpanel-postgres pg_dumpall -c -U ${dbUser} | gzip > "${dbFile}"`,
+          `set -o pipefail; docker exec hmpanel-postgres pg_dumpall -c -U ${dbUser} | gzip > "${dbFile}"`,
+          { shell: '/bin/bash', maxBuffer: 16 * 1024 * 1024 },
         );
+        const { stdout: dumpHead } = await execPromise(
+          `gzip -dc "${dbFile}" | head -c 4096 | wc -c`,
+          { shell: '/bin/bash' },
+        );
+        if (parseInt(dumpHead.trim(), 10) < 64) {
+          throw new Error('pg_dumpall produced an empty database dump');
+        }
         checksums['database.sql.gz'] = await this.calculateChecksum(dbFile);
       }
 
@@ -252,7 +271,7 @@ export class BackupsService {
         }
 
         const premiumDir = '/opt/hmpanel/premium';
-        if (fs.existsSync(premiumDir)) {
+        if (this.hasPremiumBundleOnDisk()) {
           this.logger.log('Archiving premium modules...');
           const premiumFile = path.join(tempDir, 'premium.tar.gz');
           try {
@@ -523,15 +542,43 @@ export class BackupsService {
     const tempExtractDir = path.join(this.backupsDir, `temp_extract_${tempId}`);
     fs.mkdirSync(tempExtractDir, { recursive: true });
     try {
+      let members: string[];
       try {
-        await execPromise(
-          `tar -xzf "${tempFilePath}" -C "${tempExtractDir}"`,
-          { maxBuffer: 16 * 1024 * 1024 },
-        );
+        const { stdout } = await execPromise(`tar -tzf "${tempFilePath}"`, {
+          maxBuffer: 64 * 1024 * 1024,
+        });
+        members = stdout.split(/\r?\n/).filter(Boolean);
       } catch (tarErr: any) {
         throw new BadRequestException(
           `Archive is not a valid gzip tar (.tar.gz): ${tarErr?.message || tarErr}`,
         );
+      }
+      const topLevel = new Set(
+        members
+          .map((m) => m.replace(/^\.\//, ''))
+          .filter((m) => m && !m.includes('/')),
+      );
+      const hasMember = (name: string) => topLevel.has(name);
+      // Only what analysis reads — uploads/premium/config can be large.
+      const wanted = members.filter((m) => {
+        const n = m.replace(/^\.\//, '');
+        return (
+          n === 'manifest.json' ||
+          /(^|\/)[^/]+\.sql(\.gz)?$/i.test(n)
+        );
+      });
+      if (wanted.length) {
+        const quoted = wanted.map((m) => `"${m.replace(/(["\\$`])/g, '\\$1')}"`).join(' ');
+        try {
+          await execPromise(
+            `tar -xzf "${tempFilePath}" -C "${tempExtractDir}" ${quoted}`,
+            { maxBuffer: 16 * 1024 * 1024 },
+          );
+        } catch (tarErr: any) {
+          throw new BadRequestException(
+            `Could not extract backup archive: ${tarErr?.message || tarErr}`,
+          );
+        }
       }
 
       let manifest: any = null;
@@ -554,24 +601,14 @@ export class BackupsService {
         );
       }
 
-      const hasUploads = fs.existsSync(
-        path.join(tempExtractDir, 'uploads.tar.gz'),
-      );
-      const hasPremium = fs.existsSync(
-        path.join(tempExtractDir, 'premium.tar.gz'),
-      );
-      const hasInstanceId = fs.existsSync(
-        path.join(tempExtractDir, '.hmpanel-instance-id'),
-      );
+      const hasUploads = hasMember('uploads.tar.gz');
+      const hasPremium = hasMember('premium.tar.gz');
+      const hasInstanceId = hasMember('.hmpanel-instance-id');
       const components: string[] = Array.isArray(manifest?.components)
         ? manifest.components
         : [
-            ...(fs.existsSync(path.join(tempExtractDir, 'database.sql.gz'))
-              ? ['database.sql.gz']
-              : []),
-            ...(fs.existsSync(path.join(tempExtractDir, 'config.tar.gz'))
-              ? ['config.tar.gz']
-              : []),
+            ...(hasMember('database.sql.gz') ? ['database.sql.gz'] : []),
+            ...(hasMember('config.tar.gz') ? ['config.tar.gz'] : []),
             ...(hasUploads ? ['uploads.tar.gz'] : []),
             ...(hasPremium ? ['premium.tar.gz'] : []),
             ...(hasInstanceId ? ['.hmpanel-instance-id'] : []),
@@ -587,7 +624,7 @@ export class BackupsService {
           'No uploads.tar.gz — branding logos may be missing after restore.',
         );
       }
-      if (isFull && !hasPremium) {
+      if (isFull && !hasPremium && this.hasPremiumBundleOnDisk()) {
         warnings.push(
           'No premium.tar.gz — premium modules may need re-download after restore.',
         );
@@ -752,7 +789,13 @@ export class BackupsService {
     const filePath = path.join(this.backupsDir, safeId);
 
     if (fs.existsSync(filePath)) {
-      const head = fs.readFileSync(filePath).subarray(0, 16);
+      const head = Buffer.alloc(16);
+      const fd = fs.openSync(filePath, 'r');
+      try {
+        fs.readSync(fd, head, 0, 16, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
       const isSqlite = head.toString('utf8').startsWith('SQLite format 3');
       const looksPanel =
         isSqlite ||

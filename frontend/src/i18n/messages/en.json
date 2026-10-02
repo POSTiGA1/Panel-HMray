@@ -998,6 +998,8 @@
     "backupFailed": "Failed to generate backup",
     "analyzeFailed": "Failed to analyze upload",
     "analyzeTooLarge": "Backup file is too large for upload (nginx limit). Update the panel, or restore via CLI: hm restore <file>",
+    "analyzeNetwork": "Backup upload was interrupted (network or CDN). Try again, or restore via CLI: hm restore <file>",
+    "analyzeGateway": "The server did not respond (HTTP {status}). Wait a few seconds and upload again; behind a CDN, try the direct IP/domain without CDN.",
     "restoreSuccess": "Restore applied — reloading…",
     "restoreInitiated": "Restore started — panel will restart. Wait ~1–2 minutes then refresh.",
     "restoreFailed": "Restore failed",
