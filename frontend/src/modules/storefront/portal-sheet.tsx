@@ -31,22 +31,30 @@ export function Sheet({
   const { isFa } = useStorefrontLocale();
   const reduce = useReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const raf = requestAnimationFrame(() => panelRef.current?.focus({ preventScroll: true }));
+    const raf = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const active = document.activeElement;
+      if (active instanceof Node && panel.contains(active) && active !== panel) return;
+      panel.focus({ preventScroll: true });
+    });
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const BackIcon = isFa ? ChevronRight : ChevronLeft;
   if (typeof document === "undefined") return null;
@@ -169,7 +177,7 @@ export function PickRow({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`store-card group flex min-h-[60px] w-full cursor-pointer items-center gap-3 rounded-2xl border px-3.5 py-3 text-start transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px motion-reduce:hover:translate-y-0 ${sheetFocusRing} ${
+      className={`store-card group flex min-h-[60px] w-full cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3 text-start transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px motion-reduce:hover:translate-y-0 ${sheetFocusRing} ${
         selected ? "shadow-[0_8px_24px_-16px_var(--store-primary)]" : ""
       }`}
     >
@@ -179,13 +187,17 @@ export function PickRow({
         </span>
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">{title}</span>
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="min-w-0 flex-1 break-words text-sm font-bold leading-snug text-zinc-900 dark:text-zinc-50">{title}</span>
           {badge}
         </span>
-        {hint ? <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span> : null}
+        {hint ? (
+          <span className="mt-1 block whitespace-pre-line break-words text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            {hint}
+          </span>
+        ) : null}
       </span>
-      {meta ? <span className="shrink-0 text-end text-xs font-semibold text-zinc-700 dark:text-zinc-200">{meta}</span> : null}
+      {meta ? <span className="mt-0.5 shrink-0 text-end text-xs font-semibold text-zinc-700 dark:text-zinc-200">{meta}</span> : null}
       {selected ? (
         <Check size={18} className="shrink-0 text-[color:var(--store-primary)]" />
       ) : (

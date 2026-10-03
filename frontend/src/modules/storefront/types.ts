@@ -13,6 +13,7 @@ export type StorefrontProduct = {
   featured?: boolean;
   sortOrder?: number;
   renewable?: boolean;
+  isTest?: boolean;
   kind?: "VPN" | "DIGITAL" | "PAYG";
   digitalDeliveryHint?: "auto" | "operator";
   digitalOrderMessage?: string | null;

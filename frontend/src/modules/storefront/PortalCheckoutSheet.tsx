@@ -363,12 +363,14 @@ export function CheckoutSheet({
       setSelectedAddonIds([]);
       setCouponCode("");
       setCouponPreview(null);
+      if (p.isTest) setConfigName(t("سرویس تست", "Test service"));
     }
     setStep((s) => s + 1);
   };
 
   const receiptMissing = isReceiptPayMethod(paymentMethod) && !receiptText.trim() && !receiptPreview;
-  const configMissing = current === "extras" && mode === "buy" && !configName.trim();
+  const testPlan = selectedProduct?.isTest === true;
+  const configMissing = current === "extras" && mode === "buy" && !testPlan && !configName.trim();
 
   const goBack = () => setStep((s) => Math.max(0, s - 1));
 
@@ -508,16 +510,21 @@ export function CheckoutSheet({
             ) : null}
             {catalog.map((p) => {
               const digital = p.kind === "DIGITAL";
+              const quota = formatQuotaLabel(p.traffic, p.durationDays, {
+                locale: isFa ? "fa" : "en",
+                maxClients: p.baseLimitIp,
+              });
+              const blurb = p.description?.split("\n")[0]?.trim();
               const spec = digital
                 ? p.digitalDeliveryHint === "operator"
                   ? t("تحویل توسط اپراتور", "Delivered by operator")
                   : t("تحویل خودکار", "Automatic delivery")
-                : formatQuotaLabel(p.traffic, p.durationDays, { locale: isFa ? "fa" : "en" });
+                : [quota, blurb].filter(Boolean).join("\n");
               return (
                 <PickRow
                   key={p.id}
                   title={p.name}
-                  hint={[spec, p.description?.split("\n")[0]].filter(Boolean).join(" · ")}
+                  hint={digital ? [spec, blurb].filter(Boolean).join("\n") : spec}
                   icon={digital ? <Gift size={18} /> : <Shield size={18} />}
                   badge={
                     p.badge || p.featured ? (
@@ -547,12 +554,20 @@ export function CheckoutSheet({
             {selectedProduct ? (
               <SelectedPlanCard
                 name={selectedProduct.name}
-                spec={formatQuotaLabel(selectedProduct.traffic, selectedProduct.durationDays, { locale: isFa ? "fa" : "en" })}
+                spec={formatQuotaLabel(selectedProduct.traffic, selectedProduct.durationDays, {
+                  locale: isFa ? "fa" : "en",
+                  maxClients: selectedProduct.baseLimitIp,
+                })}
                 price={productPrice(selectedProduct)}
                 digital={false}
               />
             ) : null}
-            {mode === "buy" ? (
+            {mode === "buy" && testPlan ? (
+              <div className="rounded-2xl border border-black/[0.06] bg-white/60 px-4 py-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("نام سرویس", "Service name")}</div>
+                <div className="mt-1 text-sm font-bold text-zinc-900 dark:text-zinc-50">{t("سرویس تست", "Test service")}</div>
+              </div>
+            ) : mode === "buy" ? (
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold text-zinc-900 dark:text-zinc-50">
                   {t("نام سرویس", "Service name")}
@@ -612,8 +627,8 @@ export function CheckoutSheet({
                 </div>
                 {selectedProduct ? (
                   <div className="min-w-0 max-w-[48%] text-end">
-                    <div className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">{selectedProduct.name}</div>
-                    <div className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <div className="break-words text-sm font-bold leading-snug text-zinc-900 dark:text-zinc-50">{selectedProduct.name}</div>
+                    <div className="mt-0.5 whitespace-pre-line break-words text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
                       {selectedProduct.kind === "DIGITAL"
                         ? t("محصول دیجیتال", "Digital product")
                         : formatQuotaLabel(preview.traffic, preview.finalDays, { locale: isFa ? "fa" : "en" })}
@@ -832,8 +847,8 @@ function SelectedPlanCard({
         {digital ? <Gift size={18} /> : <Shield size={18} />}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">{name}</div>
-        <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{spec}</div>
+        <div className="break-words text-sm font-bold leading-snug text-zinc-900 dark:text-zinc-50">{name}</div>
+        <div className="mt-0.5 whitespace-pre-line break-words text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{spec}</div>
       </div>
       <span className="shrink-0 rounded-xl bg-[color:var(--store-primary)]/10 px-2.5 py-1 text-xs font-bold text-[color:var(--store-primary)]">
         {price}

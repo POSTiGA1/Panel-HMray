@@ -316,7 +316,8 @@ export function CheckoutCouponBox({
           value={code}
           onChange={(e) => onCodeChange(e.target.value.toUpperCase())}
           placeholder={t("کد دیگر", "Another code")}
-          className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none dark:border-zinc-700 dark:bg-zinc-950"
+          className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-base outline-none dark:border-zinc-700 dark:bg-zinc-950"
+          style={{ fontSize: 16 }}
         />
         <button
           type="button"

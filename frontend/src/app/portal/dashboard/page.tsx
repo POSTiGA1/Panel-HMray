@@ -256,7 +256,9 @@ function CustomerDashboardInner() {
   const orderMutation = useMutation({
     mutationFn: async () => {
       const isDigital = selectedProduct?.kind === "DIGITAL";
-      const name = configName.trim() || (isDigital ? String(selectedProduct?.name || "digital") : "");
+      const name = selectedProduct?.isTest
+        ? t("سرویس تست", "Test service")
+        : configName.trim() || (isDigital ? String(selectedProduct?.name || "digital") : "");
       if (!selectedProduct || !name) return null;
       return (
         await publicApi.post("/store/customer/order", {
@@ -519,12 +521,14 @@ function CustomerDashboardInner() {
         },
       ];
 
+  const configuredBuyLabel = (kind: "vpn" | "digital" | "payg") =>
+    String(data.store?.buyMenu?.[kind]?.label || "").trim();
   const buyLabel =
     viewTab === "digital"
-      ? t("خرید محصول دیجیتال", "Buy digital")
+      ? configuredBuyLabel("digital") || t("خرید محصول دیجیتال", "Buy digital")
       : viewTab === "payg"
-        ? t("خرید مصرفی", "Buy PAYG")
-        : t("خرید سرویس", "Buy service");
+        ? configuredBuyLabel("payg") || t("خرید مصرفی", "Buy PAYG")
+        : configuredBuyLabel("vpn") || t("خرید سرویس", "Buy service");
 
   const renewSoon = mini
     ? (data.services || [])
@@ -1535,16 +1539,12 @@ function HomeTab({
                 setLinkOpen((v) => !v);
                 setLinkError("");
               }}
-              aria-label={linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
-              title={linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
-              className={
-                compact
-                  ? "store-focus-ring inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 text-[color:var(--store-muted)] dark:border-zinc-700"
-                  : "inline-flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold dark:border-zinc-700"
-              }
+              aria-label={linkOpen ? t("بستن", "Close") : t("افزودن سرویس قبلی", "Add a previous service")}
+              title={linkOpen ? t("بستن", "Close") : t("افزودن سرویس قبلی", "Add a previous service")}
+              className="store-focus-ring inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-2xl border border-zinc-200 px-3 text-xs font-bold text-[color:var(--store-fg)] dark:border-zinc-700"
             >
-              <Link2 size={compact ? 16 : 13} aria-hidden />
-              {compact ? null : linkOpen ? t("بستن", "Close") : t("افزودن با لینک ساب", "Add by sub link")}
+              <Link2 size={14} aria-hidden />
+              {linkOpen ? t("بستن", "Close") : t("افزودن سرویس قبلی", "Add a previous service")}
             </button>
           }
         />
@@ -1575,7 +1575,8 @@ function HomeTab({
                   placeholder={t("https://…/s/abc123", "https://…/s/abc123")}
                   dir="ltr"
                   rows={2}
-                  className="mt-3 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 font-mono text-[12px] outline-none focus:border-[color:var(--store-primary)] dark:border-zinc-700 dark:bg-zinc-900"
+                  className="mt-3 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 font-mono outline-none focus:border-[color:var(--store-primary)] dark:border-zinc-700 dark:bg-zinc-900"
+                  style={{ fontSize: 16 }}
                 />
                 <label className="mt-3 block text-[11px] font-semibold text-zinc-500">
                   {t("دسته‌بندی سرویس", "Service category")}

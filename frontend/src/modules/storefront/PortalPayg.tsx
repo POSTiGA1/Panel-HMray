@@ -922,7 +922,8 @@ export function PaygTopUpSheet({
               onChange={(e) => setReceiptText(e.target.value)}
               rows={2}
               placeholder={t("یا شماره پیگیری / توضیح رسید", "Or tracking number / receipt note")}
-              className={`mt-2 w-full resize-none rounded-2xl border border-black/[0.08] bg-zinc-50 px-4 py-3 text-sm outline-none transition-colors duration-200 focus:border-[color:var(--store-primary)] dark:border-white/10 dark:bg-zinc-950 ${focusRing}`}
+              className={`mt-2 w-full resize-none rounded-2xl border border-black/[0.08] bg-zinc-50 px-4 py-3 outline-none transition-colors duration-200 focus:border-[color:var(--store-primary)] dark:border-white/10 dark:bg-zinc-950 ${focusRing}`}
+              style={{ fontSize: 16 }}
             />
           </div>
 
