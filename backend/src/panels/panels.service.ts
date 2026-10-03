@@ -105,7 +105,7 @@ const FULL_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const PANEL_UPDATE_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 const SYNC_DB_BATCH_SIZE = 50;
 /** Panel writes during one sync. The rest wait for the next cycle. */
-const SYNC_QUOTA_RESTORE_LIMIT = 25;
+const SYNC_QUOTA_RESTORE_LIMIT = 200;
 
 function positiveByteCount(value: unknown): number {
   const n = Number(value ?? 0);
@@ -1716,13 +1716,13 @@ export class PanelsService implements OnModuleInit {
           delta: bigint;
         }>
       >();
-      const quotaRepairs: Array<{ email: string; total: bigint }> = [];
-      const usageRemainingCache = new Map<string, Promise<number>>();
-      const usageRemaining = (adminId: string) => {
-        let pending = usageRemainingCache.get(adminId);
+      const quotaRepairs: Array<{ email: string }> = [];
+      const usageOpenCache = new Map<string, Promise<boolean>>();
+      const usagePoolOpen = (adminId: string) => {
+        let pending = usageOpenCache.get(adminId);
         if (!pending) {
-          pending = this.adminQuota.usagePoolRemaining(adminId);
-          usageRemainingCache.set(adminId, pending);
+          pending = this.adminQuota.usagePoolStillOpen(adminId, panel.id);
+          usageOpenCache.set(adminId, pending);
         }
         return pending;
       };
@@ -1975,38 +1975,31 @@ export class PanelsService implements OnModuleInit {
                 changedData.total = total;
               }
             }
-            // 3x-ui disables a client when up+down reaches the panel quota.
-            // A shrunken panel total (while we still hold the paid allocation)
-            // does that even though the usage pool is not empty. Put the paid
-            // total back and turn the client on. A manual disable stays off.
+            // 3x-ui turns a client off when up+down >= total. In USAGE mode that
+            // cap is not the limit — the admin pool is. While the pool still
+            // has traffic, clear the panel cap (totalGB 0 = unlimited) and
+            // turn the client back on. A manual disable of a client that has
+            // not used its own package stays off.
             const usedNow = up + down;
-            const underPaidQuota =
-              dbClient.total === 0n || usedNow < dbClient.total;
             const notExpired =
               expiryTime === 0n || expiryTime > BigInt(Date.now());
-            const panelQuotaShrunk = total > 0n && total < dbClient.total;
-            const balanceHold = dbClient.disableReason === 'BALANCE_EXHAUSTED';
             const ownerId = dbClient.adminId;
+            const manualHold =
+              dbClient.disableReason === 'MANUAL' &&
+              (dbClient.total === 0n || usedNow < dbClient.total);
             if (
               !missingSample &&
-              !enable &&
-              (panelQuotaShrunk || balanceHold) &&
-              underPaidQuota &&
               notExpired &&
+              !manualHold &&
               ownerId &&
-              dbClient.disableReason !== 'MANUAL' &&
-              (await usageRemaining(ownerId)) > 0
+              (await usagePoolOpen(ownerId)) &&
+              (!enable || total > 0n)
             ) {
-              quotaRepairs.push({
-                email: trimmedEmail,
-                total: dbClient.total,
-              });
-              delete changedData.enable;
-              delete changedData.disableReason;
-              this.logger.warn(
-                `[SYNC] ${trimmedEmail} is disabled on a quota below the paid total ` +
-                  `while the usage pool still has traffic. Restoring.`,
-              );
+              quotaRepairs.push({ email: trimmedEmail });
+              if (!enable) {
+                delete changedData.enable;
+                delete changedData.disableReason;
+              }
             }
             if (dbClient.expiryTime !== expiryTime)
               changedData.expiryTime = expiryTime;
@@ -2139,19 +2132,24 @@ export class PanelsService implements OnModuleInit {
       const repairBatch = quotaRepairs.slice(0, SYNC_QUOTA_RESTORE_LIMIT);
       if (quotaRepairs.length > repairBatch.length) {
         this.logger.warn(
-          `[SYNC] Deferred ${quotaRepairs.length - repairBatch.length} quota restores on ${panel.name} to the next cycle`,
+          `[SYNC] Deferred ${quotaRepairs.length - repairBatch.length} usage-pool restores on ${panel.name} to the next cycle`,
+        );
+      }
+      if (repairBatch.length) {
+        this.logger.warn(
+          `[SYNC] USAGE pool still has traffic on ${panel.name}; clearing 3x-ui per-client caps for ${repairBatch.length} client(s)`,
         );
       }
       for (const repair of repairBatch) {
         if (this.isPanelUpdateInCooldown(panel.id, repair.email)) continue;
         const result = await this.updateClientOnPanel(panel.id, repair.email, {
           enable: true,
-          totalGB: Number(repair.total),
+          totalGB: 0,
         });
         if (!result.success) {
           this.markPanelUpdateFailure(panel.id, repair.email);
           this.logger.warn(
-            `[SYNC] Quota restore failed for ${repair.email}: ${result.error?.message || 'panel rejected the update'}`,
+            `[SYNC] Usage restore failed for ${repair.email}: ${result.error?.message || 'panel rejected the update'}`,
           );
           continue;
         }
@@ -2160,9 +2158,6 @@ export class PanelsService implements OnModuleInit {
           data: { enable: true, disableReason: null },
         });
         syncReport.repaired++;
-        this.logger.log(
-          `[SYNC] Restored ${repair.email} on ${panel.name}: panel quota was below the paid total`,
-        );
       }
 
       this.logger.log(

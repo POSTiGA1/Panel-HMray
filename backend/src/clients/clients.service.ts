@@ -1304,7 +1304,11 @@ export class ClientsService {
         const payload: Record<string, unknown> = {
           id: clientUuid,
           email: data.email,
-          totalGB: Number(data.total) || 0,
+          totalGB: await this.adminQuota.panelTotalBytesForXui(
+            targetAdminId,
+            panelId,
+            Number(data.total) || 0,
+          ),
           expiryTime: data.expiryTime || 0,
           limitIp: limits.limitIp,
           limitHwid: limits.limitHwid,
@@ -2112,12 +2116,19 @@ export class ClientsService {
           ? true
           : existing.enable;
 
+    const panelTotalGb = existing.adminId
+      ? await this.adminQuota.panelTotalBytesForXui(
+          existing.adminId,
+          (existing as any).panelId,
+          Number(newTotal),
+        )
+      : Number(newTotal);
     const baseClientPayload: any = {
       id: existing.uuid,
       subId: nextSubId,
       email: existing.email.trim(),
       enable: newEnable,
-      totalGB: Number(newTotal),
+      totalGB: panelTotalGb,
       expiryTime: Number(newExpiry),
       limitIp:
         data.limitIp !== undefined
@@ -2846,7 +2857,11 @@ export class ClientsService {
           subId: clientSubId,
           email: email,
           enable: dto.enable !== false,
-          totalGB: Number(dto.total) || 0,
+          totalGB: await this.adminQuota.panelTotalBytesForXui(
+            targetAdminId,
+            panelId,
+            Number(dto.total) || 0,
+          ),
           expiryTime: dto.expiryTime || 0,
           limitIp: limits.limitIp,
           limitHwid: limits.limitHwid,

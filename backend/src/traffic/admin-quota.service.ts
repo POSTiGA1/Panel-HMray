@@ -1176,6 +1176,47 @@ export class AdminQuotaService implements OnModuleInit {
     );
   }
 
+  /**
+   * Bytes to send as 3x-ui totalGB.
+   * In USAGE mode the admin pool is the only cap. A per-client total makes
+   * 3x-ui turn the client off while the reseller still has traffic left.
+   */
+  async panelTotalBytesForXui(
+    adminId: string,
+    panelId: string,
+    requestedBytes: number,
+  ): Promise<number> {
+    const admin = await this.loadAdmin(adminId);
+    if (this.skipTrafficAccounting(admin)) return requestedBytes;
+    const mode = await this.resolveTrafficMode(
+      adminId,
+      undefined,
+      undefined,
+      this.isPerPanel(admin) ? panelId : undefined,
+    );
+    if (mode !== 'USAGE') return requestedBytes;
+    return 0;
+  }
+
+  /**
+   * True when this admin is billed by usage and the pool still has bytes.
+   * 3x-ui must not keep those clients disabled for their own package cap.
+   */
+  async usagePoolStillOpen(adminId: string, panelId: string): Promise<boolean> {
+    const admin = await this.loadAdmin(adminId);
+    if (this.skipTrafficAccounting(admin)) return false;
+    const mode = await this.resolveTrafficMode(
+      adminId,
+      undefined,
+      undefined,
+      this.isPerPanel(admin) ? panelId : undefined,
+    );
+    if (mode !== 'USAGE') return false;
+    if (await this.isPanelUnlimited(admin, panelId)) return false;
+    const bucket = await this.getPanelBalance(admin, panelId);
+    return Math.max(0, Number(bucket.balance) || 0) > 0;
+  }
+
   /** Same rule for one panel. GLOBAL usage uses the account pool. */
   async usagePoolRemainingForPanel(
     adminId: string,
