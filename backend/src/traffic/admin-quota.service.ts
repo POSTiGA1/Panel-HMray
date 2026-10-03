@@ -1153,6 +1153,48 @@ export class AdminQuotaService implements OnModuleInit {
     return Math.max(0, Number(overview.availableTraffic) || 0);
   }
 
+  /**
+   * Bytes left in the pool that is allowed to disable live clients.
+   * An empty ALLOCATION leftover (traffic already assigned to clients) is not
+   * exhaustion. Per-panel rows default to ALLOCATION, so Admin.trafficMode
+   * USAGE alone must not suspend clients whose panel quota is still allocation.
+   */
+  async usagePoolRemaining(adminId: string): Promise<number> {
+    const admin = await this.loadAdmin(adminId);
+    if (this.skipTrafficAccounting(admin)) return Number.POSITIVE_INFINITY;
+    if (!this.isPerPanel(admin)) {
+      if (admin.trafficMode !== 'USAGE') return Number.POSITIVE_INFINITY;
+      return Math.max(0, Number(admin.balance) || 0);
+    }
+    const quotas = await this.listPanelQuotas(adminId);
+    const usageRows = quotas.filter((q) => q.trafficMode === 'USAGE');
+    if (!usageRows.length) return Number.POSITIVE_INFINITY;
+    if (usageRows.some((q) => q.unlimitedTraffic)) return Number.POSITIVE_INFINITY;
+    return usageRows.reduce(
+      (sum, row) => sum + Math.max(0, Number(row.balance) || 0),
+      0,
+    );
+  }
+
+  /** Same rule for one panel. GLOBAL usage uses the account pool. */
+  async usagePoolRemainingForPanel(
+    adminId: string,
+    panelId: string,
+  ): Promise<number> {
+    const admin = await this.loadAdmin(adminId);
+    if (this.skipTrafficAccounting(admin)) return Number.POSITIVE_INFINITY;
+    const mode = await this.resolveTrafficMode(
+      adminId,
+      undefined,
+      undefined,
+      this.isPerPanel(admin) ? panelId : undefined,
+    );
+    if (mode !== 'USAGE') return Number.POSITIVE_INFINITY;
+    if (await this.isPanelUnlimited(admin, panelId)) return Number.POSITIVE_INFINITY;
+    const bucket = await this.getPanelBalance(admin, panelId);
+    return Math.max(0, Number(bucket.balance) || 0);
+  }
+
   /** Append panel (and inbound) names so history rows stay destination-specific. */
   private async labeledDescription(
     db: Tx | PrismaService,

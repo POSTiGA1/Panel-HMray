@@ -104,6 +104,41 @@ const FULL_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 /** Skip repeated failed panel enable/disable for this long. */
 const PANEL_UPDATE_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 const SYNC_DB_BATCH_SIZE = 50;
+/** Panel writes during one sync. The rest wait for the next cycle. */
+const SYNC_QUOTA_RESTORE_LIMIT = 25;
+
+function positiveByteCount(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * 3x-ui 3.8 puts the enforced quota and enable flag on `traffic`.
+ * The settings fields can stay larger or still say enabled after the
+ * traffic row has already been turned off, and the other way around.
+ * Prefer the live counter when it is present.
+ */
+function liveClientQuota(source: any): {
+  up: number;
+  down: number;
+  total: number;
+  enable: boolean;
+} {
+  const traffic = source?.traffic;
+  const up = positiveByteCount(traffic?.up) || positiveByteCount(source?.up);
+  const down =
+    positiveByteCount(traffic?.down) || positiveByteCount(source?.down);
+  const total = Math.max(
+    positiveByteCount(traffic?.total),
+    positiveByteCount(source?.totalGB),
+    positiveByteCount(source?.total),
+  );
+  const enable =
+    typeof traffic?.enable === 'boolean'
+      ? traffic.enable
+      : source?.enable !== false;
+  return { up, down, total, enable };
+}
 
 export type PanelSyncMode = 'full' | 'traffic';
 
@@ -1266,16 +1301,17 @@ export class PanelsService implements OnModuleInit {
           const primaryInbound = apiInbounds.find(
             (ib: any) => ib.id === primaryInboundId,
           );
+          const live = liveClientQuota(c);
           unifiedClients.push({
             uuid: c.uuid || c.id,
             subId: c.subId,
             email: c.email,
             group: c.group,
             flow: c.flow,
-            enable: c.enable !== false,
-            up: c.traffic?.up || c.up || 0,
-            down: c.traffic?.down || c.down || 0,
-            total: c.totalGB || 0,
+            enable: live.enable,
+            up: live.up,
+            down: live.down,
+            total: live.total,
             expiryTime: c.expiryTime || 0,
             limitIp: allowedUsersFromXuiClient(c),
             inboundIds: c.inboundIds || [],
@@ -1332,16 +1368,17 @@ export class PanelsService implements OnModuleInit {
             const trimmedEmail =
               (c.email || '').trim() || `client-${(c.id || '').slice(0, 8)}`;
             const stats = statsMap.get(trimmedEmail) || {};
+            const live = liveClientQuota({ ...c, traffic: stats, totalGB: c.totalGB });
             unifiedClients.push({
               uuid: c.id,
               subId: c.subId || stats.subId,
               email: trimmedEmail,
               group: c.group,
               flow: c.flow,
-              enable: stats.enable !== false,
-              up: stats.up || c.up || 0,
-              down: stats.down || c.down || 0,
-              total: stats.total || 0,
+              enable: live.enable && stats.enable !== false && c.enable !== false,
+              up: live.up,
+              down: live.down,
+              total: live.total,
               expiryTime: stats.expiryTime || 0,
               limitIp: allowedUsersFromXuiClient(c),
               inboundIds: [apiInbound.id],
@@ -1679,6 +1716,16 @@ export class PanelsService implements OnModuleInit {
           delta: bigint;
         }>
       >();
+      const quotaRepairs: Array<{ email: string; total: bigint }> = [];
+      const usageRemainingCache = new Map<string, Promise<number>>();
+      const usageRemaining = (adminId: string) => {
+        let pending = usageRemainingCache.get(adminId);
+        if (!pending) {
+          pending = this.adminQuota.usagePoolRemaining(adminId);
+          usageRemainingCache.set(adminId, pending);
+        }
+        return pending;
+      };
 
       this.logger.debug(
         `[DIAGNOSTIC] Syncing ${unifiedClients.length} clients into Database (${mode})`,
@@ -1928,6 +1975,39 @@ export class PanelsService implements OnModuleInit {
                 changedData.total = total;
               }
             }
+            // 3x-ui disables a client when up+down reaches the panel quota.
+            // A shrunken panel total (while we still hold the paid allocation)
+            // does that even though the usage pool is not empty. Put the paid
+            // total back and turn the client on. A manual disable stays off.
+            const usedNow = up + down;
+            const underPaidQuota =
+              dbClient.total === 0n || usedNow < dbClient.total;
+            const notExpired =
+              expiryTime === 0n || expiryTime > BigInt(Date.now());
+            const panelQuotaShrunk = total > 0n && total < dbClient.total;
+            const balanceHold = dbClient.disableReason === 'BALANCE_EXHAUSTED';
+            const ownerId = dbClient.adminId;
+            if (
+              !missingSample &&
+              !enable &&
+              (panelQuotaShrunk || balanceHold) &&
+              underPaidQuota &&
+              notExpired &&
+              ownerId &&
+              dbClient.disableReason !== 'MANUAL' &&
+              (await usageRemaining(ownerId)) > 0
+            ) {
+              quotaRepairs.push({
+                email: trimmedEmail,
+                total: dbClient.total,
+              });
+              delete changedData.enable;
+              delete changedData.disableReason;
+              this.logger.warn(
+                `[SYNC] ${trimmedEmail} is disabled on a quota below the paid total ` +
+                  `while the usage pool still has traffic. Restoring.`,
+              );
+            }
             if (dbClient.expiryTime !== expiryTime)
               changedData.expiryTime = expiryTime;
             const syncedLimitIp = Number(unifiedClient.limitIp || 0) || 0;
@@ -2054,6 +2134,35 @@ export class PanelsService implements OnModuleInit {
             ),
           );
         }
+      }
+
+      const repairBatch = quotaRepairs.slice(0, SYNC_QUOTA_RESTORE_LIMIT);
+      if (quotaRepairs.length > repairBatch.length) {
+        this.logger.warn(
+          `[SYNC] Deferred ${quotaRepairs.length - repairBatch.length} quota restores on ${panel.name} to the next cycle`,
+        );
+      }
+      for (const repair of repairBatch) {
+        if (this.isPanelUpdateInCooldown(panel.id, repair.email)) continue;
+        const result = await this.updateClientOnPanel(panel.id, repair.email, {
+          enable: true,
+          totalGB: Number(repair.total),
+        });
+        if (!result.success) {
+          this.markPanelUpdateFailure(panel.id, repair.email);
+          this.logger.warn(
+            `[SYNC] Quota restore failed for ${repair.email}: ${result.error?.message || 'panel rejected the update'}`,
+          );
+          continue;
+        }
+        await this.prisma.client.updateMany({
+          where: { panelId: panel.id, email: repair.email },
+          data: { enable: true, disableReason: null },
+        });
+        syncReport.repaired++;
+        this.logger.log(
+          `[SYNC] Restored ${repair.email} on ${panel.name}: panel quota was below the paid total`,
+        );
       }
 
       this.logger.log(
@@ -4204,7 +4313,10 @@ export class PanelsService implements OnModuleInit {
     });
 
     for (const admin of candidates) {
-      const remaining = await this.adminQuota.remainingTrafficBytes(admin.id);
+      // Only a real USAGE pool can suspend clients. Admin.trafficMode USAGE
+      // with per-panel ALLOCATION quotas (the column default) still has its
+      // traffic assigned to clients — an empty leftover must not disable them.
+      const remaining = await this.adminQuota.usagePoolRemaining(admin.id);
       const exhausted = Number.isFinite(remaining) && remaining <= 0;
 
       if (!exhausted) {
@@ -4306,15 +4418,17 @@ export class PanelsService implements OnModuleInit {
   private async suspendBalanceExhaustedClients(adminId: string) {
     let suspended = 0;
     const failedIds: string[] = [];
+    const skippedIds: string[] = [];
     for (let round = 0; round < 50; round++) {
-      const remaining = await this.adminQuota.remainingTrafficBytes(adminId);
+      const remaining = await this.adminQuota.usagePoolRemaining(adminId);
       if (!Number.isFinite(remaining) || remaining > 0) break;
 
+      const excluded = [...failedIds, ...skippedIds];
       const clientsToSuspend = await this.prisma.client.findMany({
         where: {
           adminId,
           enable: true,
-          ...(failedIds.length ? { id: { notIn: failedIds } } : {}),
+          ...(excluded.length ? { id: { notIn: excluded } } : {}),
         },
         take: 100,
         include: {
@@ -4328,7 +4442,20 @@ export class PanelsService implements OnModuleInit {
       if (!clientsToSuspend.length) break;
 
       for (const client of clientsToSuspend) {
+        const panelId = client.inbounds.find((link) => link.inbound?.panelId)
+          ?.inbound?.panelId;
+        if (panelId) {
+          const panelRemaining =
+            await this.adminQuota.usagePoolRemainingForPanel(adminId, panelId);
+          if (!Number.isFinite(panelRemaining) || panelRemaining > 0) {
+            skippedIds.push(client.id);
+            continue;
+          }
+        }
         try {
+          this.logger.warn(
+            `[SUSPEND] Disabling ${client.email || client.id} admin=${adminId} usageRemaining=${remaining}`,
+          );
           await this.setClientEnableOnPanels(client, false);
           await this.prisma.client.update({
             where: { id: client.id },

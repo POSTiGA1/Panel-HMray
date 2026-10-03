@@ -2123,10 +2123,8 @@ export class ClientsService {
         data.limitIp !== undefined
           ? data.limitIp
           : (existing as any).limitIp || 0,
-      tgId: 0,
       flow: newFlow || '',
       comment: data.remark !== undefined ? data.remark : existing.remark || '',
-      reset: 0,
     };
 
     // Map allowed-users to HWID on 3.7+ panels when limitIp is being set
