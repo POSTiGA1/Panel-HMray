@@ -911,6 +911,7 @@ export class ClientsService {
     adminId: string,
     role: string,
     data: {
+      email?: string;
       enable?: boolean;
       total?: number;
       expiryTime?: number;
@@ -926,6 +927,17 @@ export class ClientsService {
     const driver = this.panelDrivers.get(panel.panelType);
     if (!driver) {
       throw new BadRequestException('Premium unavailable — this panel is frozen.');
+    }
+    if (data.email !== undefined) {
+      const next = this.normalizeClientEmail(data.email);
+      const current = this.normalizeClientEmail(
+        existing.remoteUsername || existing.email,
+      );
+      if (next && next !== current) {
+        throw new BadRequestException(
+          'Renaming clients is only supported on 3x-ui panels.',
+        );
+      }
     }
     if (
       existing.adminId &&
@@ -1834,6 +1846,8 @@ export class ClientsService {
     clientPayload: any,
     adminId?: string,
   ): Promise<{ verified: boolean; message?: string }> {
+    // After a rename the panel looks the client up by the new email.
+    const verifyEmail = String(clientPayload?.email || email).trim() || email;
     if (newNumericInboundIds === null) {
       // If we are not changing inbounds, just update directly without strict matching
       const updateResult = await this.panelsService.updateClientOnPanel(
@@ -1850,7 +1864,7 @@ export class ClientsService {
       }
       return this.verifyPanelClientQuotaAfterUpdate(
         panelId,
-        email,
+        verifyEmail,
         clientPayload,
         adminId,
       );
@@ -1958,16 +1972,16 @@ export class ClientsService {
     // ── Step 3: POST-UPDATE VERIFICATION ──────────────────────────────────
     const postCheck = await this.panelsService.verifyClientExists(
       panelId,
-      email,
+      verifyEmail,
       adminId,
     );
     if (!postCheck.exists) {
       this.logger.error(
-        `[SYNC_INBOUNDS] CRITICAL: Client ${email} MISSING after update!`,
+        `[SYNC_INBOUNDS] CRITICAL: Client ${verifyEmail} MISSING after update!`,
       );
       return {
         verified: false,
-        message: `Client "${email}" disappeared from the panel after update.`,
+        message: `Client "${verifyEmail}" disappeared from the panel after update.`,
       };
     }
 
@@ -1982,7 +1996,7 @@ export class ClientsService {
       postRemoteInbounds.every((val, index) => val === expectedInbounds[index]);
 
     if (!inboundsMatch) {
-      const errMsg = `Inbound mismatch after update for ${email}. Expected [${expectedInbounds.join(',')}] but got [${postRemoteInbounds.join(',')}].`;
+      const errMsg = `Inbound mismatch after update for ${verifyEmail}. Expected [${expectedInbounds.join(',')}] but got [${postRemoteInbounds.join(',')}].`;
       this.logger.error(
         `[SYNC_INBOUNDS] VERIFICATION FAILED: ${errMsg} Triggering rollback.`,
       );
@@ -1991,7 +2005,7 @@ export class ClientsService {
 
     const quotaVerify = await this.verifyPanelClientQuotaAfterUpdate(
       panelId,
-      email,
+      verifyEmail,
       clientPayload,
       adminId,
     );
@@ -1999,8 +2013,31 @@ export class ClientsService {
       return quotaVerify;
     }
 
-    this.logger.log(`[SYNC_INBOUNDS] Verification passed for ${email}.`);
+    this.logger.log(`[SYNC_INBOUNDS] Verification passed for ${verifyEmail}.`);
     return { verified: true };
+  }
+
+  private normalizeClientEmail(raw: string): string {
+    return String(raw || '').trim();
+  }
+
+  private assertValidClientEmail(email: string) {
+    if (!email) {
+      throw new BadRequestException('Client name cannot be empty');
+    }
+    if (email.length < 2 || email.length > 64) {
+      throw new BadRequestException(
+        'Client name must be between 2 and 64 characters',
+      );
+    }
+    if (/\s/.test(email)) {
+      throw new BadRequestException('Client name cannot contain spaces');
+    }
+    if (!/^[a-zA-Z0-9@._+-]+$/.test(email)) {
+      throw new BadRequestException(
+        'Client name may only contain letters, numbers, and @ . _ + -',
+      );
+    }
   }
 
   async update(
@@ -2008,6 +2045,7 @@ export class ClientsService {
     adminId: string,
     role: string,
     data: {
+      email?: string;
       enable?: boolean;
       total?: number;
       expiryTime?: number;
@@ -2028,6 +2066,41 @@ export class ClientsService {
     }
 
     // Flow is dynamically assigned per inbound later.
+
+    const currentEmail = this.normalizeClientEmail(existing.email);
+    const nextEmail =
+      data.email !== undefined
+        ? this.normalizeClientEmail(data.email)
+        : currentEmail;
+    const emailChanged =
+      data.email !== undefined && nextEmail !== currentEmail;
+    if (emailChanged) {
+      this.assertValidClientEmail(nextEmail);
+      const localClash = await this.prisma.client.findUnique({
+        where: {
+          panelId_email: {
+            panelId: existing.panelId,
+            email: nextEmail,
+          },
+        },
+        select: { id: true },
+      });
+      if (localClash) {
+        throw new BadRequestException(
+          `Client name "${nextEmail}" is already in use on this panel.`,
+        );
+      }
+      const remoteClash = await this.panelsService.verifyClientExists(
+        existing.panelId,
+        nextEmail,
+        adminId,
+      );
+      if (remoteClash.exists) {
+        throw new BadRequestException(
+          `Client name "${nextEmail}" already exists on the remote panel.`,
+        );
+      }
+    }
 
     const newTotal =
       data.total !== undefined ? BigInt(data.total) : existing.total;
@@ -2126,7 +2199,7 @@ export class ClientsService {
     const baseClientPayload: any = {
       id: existing.uuid,
       subId: nextSubId,
-      email: existing.email.trim(),
+      email: nextEmail,
       enable: newEnable,
       totalGB: panelTotalGb,
       expiryTime: Number(newExpiry),
@@ -2233,10 +2306,11 @@ export class ClientsService {
           clientPayload.flow = isReality ? newFlow || '' : '';
         }
 
-        // Delegate panel synchronization and strict verification to the dedicated method
+        // Identifier in the URL stays the current panel email; the body may
+        // carry a new email so 3x-ui renames the record atomically.
         return this.syncInboundAssignmentsOnPanel(
           clientPanelId,
-          existing.email,
+          currentEmail,
           newNumericInboundIds,
           clientPayload,
           adminId,
@@ -2244,8 +2318,10 @@ export class ClientsService {
       },
       async (tx) => {
         const updateData: Prisma.ClientUpdateInput = {};
-        if (existing.email !== existing.email.trim()) {
-          updateData.email = existing.email.trim();
+        if (emailChanged) {
+          updateData.email = nextEmail;
+        } else if (existing.email !== currentEmail) {
+          updateData.email = currentEmail;
         }
 
         if (data.expiryTime !== undefined) updateData.expiryTime = newExpiry;

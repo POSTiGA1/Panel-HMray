@@ -26,6 +26,10 @@ export class CreateClientDto {
 }
 
 export class UpdateClientDto {
+  @ApiPropertyOptional({ description: 'Client username / email identifier' })
+  @IsOptional()
+  @IsString()
+  email?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() enable?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsNumber() total?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() expiryTime?: number;

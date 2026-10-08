@@ -2577,6 +2577,7 @@ export function EditClientModal({
   const adminSharedPool = panelOverview?.admin?.quotaMode === "GLOBAL";
 
   const [form, setForm] = useState({
+    email: client.email || "",
     expiryDays: "",
     remark: client.remark || "",
     flow: client.flow || "",
@@ -2590,6 +2591,15 @@ export function EditClientModal({
         : [],
     } as Record<string, unknown>,
   });
+  const canRenameOnPanel =
+    clientPanelType !== "eylan" && clientPanelType !== "pasarguard";
+  const trimmedEmail = form.email.trim();
+  const emailInvalid =
+    !trimmedEmail ||
+    trimmedEmail.length < 2 ||
+    trimmedEmail.length > 64 ||
+    /\s/.test(trimmedEmail) ||
+    !/^[a-zA-Z0-9@._+-]+$/.test(trimmedEmail);
 
   const usedTraffic = Number(client.up) + Number(client.down);
   const totalTraffic = Number(client.total);
@@ -2650,6 +2660,7 @@ export function EditClientModal({
 
       return (
         await api.patch(`/clients/${client.id}`, {
+          email: canRenameOnPanel ? trimmedEmail : undefined,
           total: trafficInput ? previewTotalBytes : undefined,
           expiryTime: form.expiryDays ? expiryTimestamp : undefined,
           remark: form.remark ?? "",
@@ -2711,6 +2722,30 @@ export function EditClientModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4 space-y-3">
+            <h3 className="font-medium text-zinc-700 dark:text-zinc-200 text-sm">{t("clients.basicInfo")}</h3>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">{t("clients.usernameIdentifier")}</label>
+              <input
+                type="text"
+                required
+                disabled={!canRenameOnPanel}
+                placeholder={t("clients.usernamePlaceholder")}
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-60"
+              />
+              {canRenameOnPanel ? (
+                <p className="mt-1 text-[11px] text-zinc-500">{t("clients.renameHint")}</p>
+              ) : (
+                <p className="mt-1 text-[11px] text-amber-500">{t("clients.renameUnsupported")}</p>
+              )}
+              {canRenameOnPanel && emailInvalid && (
+                <p className="mt-1 text-[11px] text-red-400 font-medium">{t("clients.invalidUsername")}</p>
+              )}
+            </div>
+          </div>
+
           {/* Traffic Section */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4">
             <div className="mb-3 flex items-center justify-between">
@@ -2954,7 +2989,12 @@ export function EditClientModal({
             </button>
             <button
               type="submit"
-              disabled={update.isPending || form.inboundIds.length === 0 || adminPanelInsufficient}
+              disabled={
+                update.isPending ||
+                form.inboundIds.length === 0 ||
+                adminPanelInsufficient ||
+                (canRenameOnPanel && emailInvalid)
+              }
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {update.isPending ? t("common.saving") : t("common.saveChanges")}
