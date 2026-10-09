@@ -1552,7 +1552,11 @@ export class ClientsService {
               entity: 'Client',
               entityId: createdClients[0].id,
               adminId: callerId,
-              details: { targetAdminId, panelsProvisioned: createdOnPanels },
+              details: {
+                clientEmail: data.email,
+                targetAdminId,
+                panelsProvisioned: createdOnPanels,
+              },
             },
           });
 
@@ -2434,6 +2438,7 @@ export class ClientsService {
             entityId: id,
             adminId,
             details: {
+              clientEmail: existing.email,
               previousAllocation: previousAllocation.toString(),
               newAllocation: newAllocation.toString(),
               trafficDifference: diff.toString(),
@@ -3811,7 +3816,156 @@ export class ClientsService {
       }
     }
 
-    if (dto.action === 'assignGroup') {
+    if (dto.action === 'assignAdmin') {
+      if (role !== 'SUPER_ADMIN') {
+        throw new ForbiddenException(
+          'Only super admin can assign clients to an admin',
+        );
+      }
+      if (!dto.targetAdminId) {
+        throw new BadRequestException('Target admin is required');
+      }
+
+      const targetAdmin = await this.prisma.admin.findUnique({
+        where: { id: dto.targetAdminId },
+        select: { id: true, username: true, role: true, status: true },
+      });
+      if (!targetAdmin || targetAdmin.status !== 'active') {
+        throw new BadRequestException('Target admin not found or inactive');
+      }
+      if (targetAdmin.role === 'SUPER_ADMIN') {
+        throw new BadRequestException(
+          'Cannot assign clients to a super admin account',
+        );
+      }
+
+      const fullTargets = await this.prisma.client.findMany({
+        where: { id: { in: targets.map((t) => t.id) } },
+        include: {
+          admin: { select: { id: true, username: true } },
+          panel: { select: { id: true, panelType: true } },
+        },
+      });
+
+      type PanelEmailBucket = {
+        panelId: string;
+        emails: string[];
+        oldGroups: Map<string, string[]>;
+      };
+      const byPanel = new Map<string, PanelEmailBucket>();
+
+      for (const t of fullTargets) {
+        const panelId = t.panelId;
+        if (!panelId) {
+          results.failed++;
+          results.errors.push(`${t.email}: missing panel`);
+          continue;
+        }
+        if (!byPanel.has(panelId)) {
+          byPanel.set(panelId, {
+            panelId,
+            emails: [],
+            oldGroups: new Map(),
+          });
+        }
+        const bucket = byPanel.get(panelId)!;
+        if (!bucket.emails.includes(t.email)) bucket.emails.push(t.email);
+
+        const prevUsername = t.admin?.username;
+        if (
+          prevUsername &&
+          prevUsername !== targetAdmin.username &&
+          t.adminId !== targetAdmin.id
+        ) {
+          const list = bucket.oldGroups.get(prevUsername) ?? [];
+          if (!list.includes(t.email)) list.push(t.email);
+          bucket.oldGroups.set(prevUsername, list);
+        }
+      }
+
+      for (const bucket of byPanel.values()) {
+        const panel = fullTargets.find((t) => t.panelId === bucket.panelId)
+          ?.panel;
+        const isXui =
+          panel && !isExternalPanelType(panel.panelType || '3x-ui');
+
+        if (isXui) {
+          for (const [oldGroup, emails] of bucket.oldGroups.entries()) {
+            const removed = await this.panelsService.removeClientFromGroup(
+              bucket.panelId,
+              emails,
+              oldGroup,
+            );
+            if (!removed?.success) {
+              results.errors.push(
+                `Panel ${bucket.panelId}: failed removing from group "${oldGroup}"`,
+              );
+            }
+          }
+
+          const added = await this.panelsService.assignClientToGroup(
+            bucket.panelId,
+            bucket.emails,
+            targetAdmin.username,
+          );
+          if (!added?.success) {
+            results.failed += bucket.emails.length;
+            results.errors.push(
+              `Panel ${bucket.panelId}: failed assigning group "${targetAdmin.username}"`,
+            );
+            continue;
+          }
+        }
+
+        const panelClients = fullTargets.filter(
+          (t) =>
+            t.panelId === bucket.panelId && bucket.emails.includes(t.email),
+        );
+        const toReassign = panelClients.filter(
+          (t) => t.adminId !== targetAdmin.id,
+        );
+
+        if (toReassign.length > 0) {
+          await this.prisma.client.updateMany({
+            where: { id: { in: toReassign.map((t) => t.id) } },
+            data: { adminId: targetAdmin.id },
+          });
+        }
+
+        for (const t of toReassign) {
+          await this.prisma.auditLog.create({
+            data: {
+              action: 'CLIENT_ASSIGNED_ADMIN',
+              entity: 'Client',
+              entityId: t.id,
+              adminId,
+              details: {
+                clientEmail: t.email,
+                fromAdminId: t.adminId,
+                fromAdminUsername: t.admin?.username ?? null,
+                toAdminId: targetAdmin.id,
+                toAdminUsername: targetAdmin.username,
+                groupName: targetAdmin.username,
+                panelId: t.panelId,
+              },
+            },
+          });
+          results.success++;
+        }
+
+        // Already owned: group sync above still applied; count as success.
+        results.success += panelClients.length - toReassign.length;
+      }
+
+      if (results.failed > 0) {
+        return {
+          affected: results.success,
+          failed: results.failed,
+          errors: results.errors,
+        };
+      }
+      return { affected: results.success };
+    } else if (dto.action === 'assignGroup') {
       if (!dto.groupName)
         throw new BadRequestException('Group name is required');
 
@@ -3947,6 +4101,7 @@ export class ClientsService {
           errors: results.errors,
           value: dto.value,
           groupName: dto.groupName,
+          targetAdminId: dto.targetAdminId,
         },
       },
     });

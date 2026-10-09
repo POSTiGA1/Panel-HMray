@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownRight,
@@ -12,6 +12,7 @@ import {
   Database,
   Network,
   Gauge,
+  ScrollText,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Admin, Paginated, Transaction } from "@/lib/types";
@@ -46,6 +47,23 @@ type LedgerDestination = {
   totalBytes?: number | null;
 };
 
+type ActionLogRow = {
+  id: string;
+  action: string;
+  entityId: string | null;
+  createdAt: string;
+  actor: { id: string; username: string } | null;
+  clientEmail: string | null;
+  details: Record<string, unknown>;
+};
+
+type ActionLogResponse = {
+  data: ActionLogRow[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
 function panelTypeLabel(
   type: string | null | undefined,
   t: (key: string, params?: Record<string, string | number>) => string,
@@ -63,6 +81,37 @@ function txTypeLabel(
   if (type === "DEBIT") return t("traffic.typeDebit");
   if (type === "USAGE_CHARGE") return t("traffic.typeUsage");
   return type;
+}
+
+function actionLabel(
+  action: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+) {
+  switch (action) {
+    case "CLIENT_CREATED":
+      return t("traffic.actionCreated");
+    case "CLIENT_UPDATED":
+      return t("traffic.actionUpdated");
+    case "CLIENT_DELETED":
+      return t("traffic.actionDeleted");
+    case "CLIENT_CLEANUP":
+      return t("traffic.actionCleanup");
+    case "CLIENT_ASSIGNED_ADMIN":
+      return t("traffic.actionAssigned");
+    case "BULK_CLIENT_CREATED":
+      return t("traffic.actionBulkCreated");
+    case "BULK_ASSIGNADMIN":
+      return t("traffic.actionBulkAssigned");
+    default:
+      return action;
+  }
+}
+
+function actionTone(action: string): "green" | "amber" | "purple" | "red" | "blue" {
+  if (action.includes("CREATED") || action.includes("ASSIGN")) return "green";
+  if (action.includes("DELETED") || action.includes("CLEANUP")) return "red";
+  if (action.includes("UPDATED")) return "amber";
+  return "blue";
 }
 
 const TRAFFIC_PANEL_TAB_KEY = "hmpanel.traffic.panelId";
@@ -97,6 +146,7 @@ export default function TrafficPage() {
   const isSuper = admin?.role === "SUPER_ADMIN";
   const [adminId, setAdminId] = useState<string>("");
   const [panelId, setPanelId] = useState<string>("");
+  const [viewTab, setViewTab] = useState<"ledger" | "actions">("ledger");
 
   const [page, setPage] = useState(1);
   const [type, setType] = useState<string>("");
@@ -147,6 +197,11 @@ export default function TrafficPage() {
   }, [selectedAdminId, destQuery.data, destQuery.isLoading]);
 
   const basePath = isSuper ? (adminId ? `/traffic/ledger/${adminId}` : null) : "/traffic/ledger";
+  const actionsPath = isSuper
+    ? adminId
+      ? `/traffic/actions/${adminId}`
+      : null
+    : "/traffic/actions";
 
   const queryParams = new URLSearchParams({
     page: page.toString(),
@@ -156,16 +211,34 @@ export default function TrafficPage() {
     ...(panelId ? { panelId } : {}),
   }).toString();
 
+  const actionsParams = new URLSearchParams({
+    page: page.toString(),
+    limit: "15",
+    ...(search ? { search } : {}),
+  }).toString();
+
   const ledger = useQuery({
     queryKey: ["ledger", basePath, queryParams],
     queryFn: async () => (await api.get<LedgerResponse>(`${basePath}?${queryParams}`)).data,
-    enabled: !!basePath && !destQuery.isLoading && (destinations.length === 0 || !!panelId),
+    enabled:
+      viewTab === "ledger" &&
+      !!basePath &&
+      !destQuery.isLoading &&
+      (destinations.length === 0 || !!panelId),
+  });
+
+  const actions = useQuery({
+    queryKey: ["traffic-actions", actionsPath, actionsParams],
+    queryFn: async () =>
+      (await api.get<ActionLogResponse>(`${actionsPath}?${actionsParams}`)).data,
+    enabled: viewTab === "actions" && !!actionsPath,
   });
 
   const resellers = (adminsQuery.data?.data ?? []).filter(
     (a) => a.role === "RESELLER" && a.status === "active",
   );
-  const totalPages = Math.ceil((ledger.data?.total || 0) / 15) || 1;
+  const activeTotal = viewTab === "actions" ? actions.data?.total || 0 : ledger.data?.total || 0;
+  const totalPages = Math.ceil(activeTotal / 15) || 1;
   const quota = ledger.data?.quota;
   const remainingBytes =
     quota?.unlimitedTraffic
@@ -174,6 +247,19 @@ export default function TrafficPage() {
         destinations.find((d) => d.id === panelId)?.remainingBytes);
   const usedBytes = quota?.unlimitedTraffic ? null : quota?.usedTraffic;
   const totalBytes = quota?.unlimitedTraffic ? null : quota?.allTimeTraffic;
+
+  // Unlimited admins land on Action Log once per selected admin.
+  const tabInitFor = useRef<string>("");
+  useEffect(() => {
+    if (!selectedAdminId) return;
+    if (tabInitFor.current === selectedAdminId) return;
+    const dests = destQuery.data?.destinations;
+    if (dests === undefined) return;
+    tabInitFor.current = selectedAdminId;
+    const allUnlimited =
+      dests.length > 0 && dests.every((d) => d.remainingBytes == null);
+    setViewTab(allUnlimited ? "actions" : "ledger");
+  }, [selectedAdminId, destQuery.data?.destinations]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,6 +271,14 @@ export default function TrafficPage() {
     setPanelId(id);
     setPage(1);
     if (selectedAdminId) writeStoredPanelTab(selectedAdminId, id);
+  };
+
+  const switchTab = (tab: "ledger" | "actions") => {
+    setViewTab(tab);
+    setPage(1);
+    setSearch("");
+    setSearchInput("");
+    setType("");
   };
 
   return (
@@ -200,6 +294,7 @@ export default function TrafficPage() {
                 setAdminId(e.target.value);
                 setPage(1);
                 setPanelId("");
+                tabInitFor.current = "";
               }}
               className="rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-200 outline-none focus:border-blue-500"
             >
@@ -222,7 +317,34 @@ export default function TrafficPage() {
         </Card>
       ) : (
         <>
-          {destinations.length > 0 && (
+          <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-px">
+            <button
+              type="button"
+              onClick={() => switchTab("ledger")}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                viewTab === "ledger"
+                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              <Database size={16} />
+              {t("traffic.tabLedger")}
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab("actions")}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                viewTab === "actions"
+                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              <ScrollText size={16} />
+              {t("traffic.tabActions")}
+            </button>
+          </div>
+
+          {viewTab === "ledger" && destinations.length > 0 && (
             <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 <Network size={14} /> {t("traffic.destinations")}
@@ -255,7 +377,7 @@ export default function TrafficPage() {
             </div>
           )}
 
-          {ledger.data && (
+          {viewTab === "ledger" && ledger.data && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Card>
                 <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
@@ -293,163 +415,312 @@ export default function TrafficPage() {
             </div>
           )}
 
+          {viewTab === "actions" && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("traffic.actionsSubtitle")}</p>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white dark:bg-zinc-900/40 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
             <form onSubmit={handleSearch} className="relative w-full sm:w-64">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
               <input
                 type="text"
-                placeholder={t("traffic.searchPlaceholder")}
+                placeholder={
+                  viewTab === "actions"
+                    ? t("traffic.actionsSearchPlaceholder")
+                    : t("traffic.searchPlaceholder")
+                }
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full ps-9 pe-4 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 dark:focus:border-blue-500"
               />
             </form>
-            
-            <div className="flex gap-2 w-full sm:w-auto">
-              <select
-                value={type}
-                onChange={(e) => {
-                  setType(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full sm:w-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-200 outline-none focus:border-blue-500"
-              >
-                <option value="">{t("traffic.allTypes")}</option>
-                <option value="CREDIT">{t("traffic.creditsOnly")}</option>
-                <option value="DEBIT">{t("traffic.debitsOnly")}</option>
-                <option value="USAGE_CHARGE">{t("traffic.usageCharges")}</option>
-              </select>
-            </div>
+
+            {viewTab === "ledger" && (
+              <div className="flex gap-2 w-full sm:w-auto">
+                <select
+                  value={type}
+                  onChange={(e) => {
+                    setType(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full sm:w-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-200 outline-none focus:border-blue-500"
+                >
+                  <option value="">{t("traffic.allTypes")}</option>
+                  <option value="CREDIT">{t("traffic.creditsOnly")}</option>
+                  <option value="DEBIT">{t("traffic.debitsOnly")}</option>
+                  <option value="USAGE_CHARGE">{t("traffic.usageCharges")}</option>
+                </select>
+              </div>
+            )}
           </div>
 
-          {ledger.isLoading ? (
+          {viewTab === "ledger" ? (
+            ledger.isLoading ? (
+              <Spinner />
+            ) : ledger.error ? (
+              <ErrorBox message={t("traffic.loadFailed")} />
+            ) : (
+              <Card className="overflow-hidden p-0 bg-transparent md:bg-zinc-50 dark:bg-zinc-950 border-0 md:border md:border-zinc-200 dark:border-zinc-800">
+                <div className="min-w-0">
+                  <table className="w-full text-sm block md:table">
+                    <thead className="hidden md:table-header-group">
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800 text-start text-xs uppercase tracking-wide text-zinc-500">
+                        <th className="px-4 py-3 font-medium">{t("traffic.colType")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colAmount")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colBalance")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colPanel")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colDescription")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colClient")}</th>
+                        <th className="px-4 py-3 font-medium">{t("traffic.colDate")}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="block md:table-row-group space-y-3 md:space-y-0">
+                      {(ledger.data?.data ?? []).map((tx) => {
+                        const credit = tx.type === "CREDIT";
+                        return (
+                          <tr
+                            key={tx.id}
+                            className="block md:table-row bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 md:border-b md:border-x-0 md:border-t-0 md:border-zinc-100 dark:md:border-zinc-800/60 rounded-xl md:rounded-none last:border-b-0 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                          >
+                            <td className="block md:table-cell px-4 py-3">
+                              <div className="flex items-center justify-between gap-2 md:block">
+                                <Badge tone={credit ? "green" : tx.type === "DEBIT" ? "amber" : "purple"}>
+                                  {txTypeLabel(tx.type, t)}
+                                </Badge>
+                                <span className="md:hidden text-xs text-zinc-500">{formatDateTime(tx.createdAt)}</span>
+                              </div>
+                            </td>
+                            <td className="block md:table-cell px-4 py-2 md:py-3">
+                              <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colAmount")}</div>
+                              <span
+                                className={`flex items-center gap-1 font-medium ${credit ? "text-emerald-500 dark:text-emerald-400" : "text-amber-500 dark:text-amber-400"}`}
+                              >
+                                {credit ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                                {formatBytes(tx.amount)}
+                              </span>
+                            </td>
+                            <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-500 dark:text-zinc-400 text-xs">
+                              <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colBalance")}</div>
+                              {tx.balanceBefore != null && tx.balanceAfter != null ? (
+                                <div className="flex flex-col">
+                                  <span className="text-zinc-400">{formatBytes(tx.balanceBefore)} &rarr;</span>
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-200">{formatBytes(tx.balanceAfter)}</span>
+                                </div>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-700 dark:text-zinc-300">
+                              <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colPanel")}</div>
+                              {tx.panel?.name ? (
+                                <span className="inline-flex flex-col">
+                                  <span className="font-medium">{tx.panel.name}</span>
+                                  <span className="text-[11px] text-zinc-400">{panelTypeLabel(tx.panel.panelType, t)}</span>
+                                </span>
+                              ) : (
+                                <span className="font-medium text-blue-600 dark:text-blue-400">{t("traffic.globalPoolPanel")}</span>
+                              )}
+                            </td>
+                            <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-700 dark:text-zinc-300">
+                              <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colDescription")}</div>
+                              {tx.description}
+                            </td>
+                            <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-500 dark:text-zinc-400">
+                              <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colClient")}</div>
+                              {tx.client?.email ?? "—"}
+                            </td>
+                            <td className="hidden md:table-cell px-4 py-3 text-zinc-500 dark:text-zinc-400">
+                              {formatDateTime(tx.createdAt)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {(ledger.data?.data.length ?? 0) === 0 && (
+                        <tr className="block md:table-row">
+                          <td colSpan={7} className="block md:table-cell px-4 py-10 text-center text-zinc-500">
+                            {t("traffic.noTransactions")}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {ledger.data && ledger.data.total > 0 && (
+                  <PaginationBar
+                    page={page}
+                    totalPages={totalPages}
+                    total={ledger.data.total}
+                    onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    PrevIcon={PrevIcon}
+                    NextIcon={NextIcon}
+                    t={t}
+                  />
+                )}
+              </Card>
+            )
+          ) : actions.isLoading ? (
             <Spinner />
-          ) : ledger.error ? (
-            <ErrorBox message={t("traffic.loadFailed")} />
+          ) : actions.error ? (
+            <ErrorBox message={t("traffic.actionsLoadFailed")} />
           ) : (
             <Card className="overflow-hidden p-0 bg-transparent md:bg-zinc-50 dark:bg-zinc-950 border-0 md:border md:border-zinc-200 dark:border-zinc-800">
               <div className="min-w-0">
                 <table className="w-full text-sm block md:table">
                   <thead className="hidden md:table-header-group">
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-start text-xs uppercase tracking-wide text-zinc-500">
-                      <th className="px-4 py-3 font-medium">{t("traffic.colType")}</th>
-                      <th className="px-4 py-3 font-medium">{t("traffic.colAmount")}</th>
-                      <th className="px-4 py-3 font-medium">{t("traffic.colBalance")}</th>
-                      <th className="px-4 py-3 font-medium">{t("traffic.colPanel")}</th>
-                      <th className="px-4 py-3 font-medium">{t("traffic.colDescription")}</th>
+                      <th className="px-4 py-3 font-medium">{t("traffic.colAction")}</th>
                       <th className="px-4 py-3 font-medium">{t("traffic.colClient")}</th>
+                      <th className="px-4 py-3 font-medium">{t("traffic.colActor")}</th>
+                      <th className="px-4 py-3 font-medium">{t("traffic.colDescription")}</th>
                       <th className="px-4 py-3 font-medium">{t("traffic.colDate")}</th>
                     </tr>
                   </thead>
                   <tbody className="block md:table-row-group space-y-3 md:space-y-0">
-                    {(ledger.data?.data ?? []).map((tx) => {
-                      const credit = tx.type === "CREDIT";
+                    {(actions.data?.data ?? []).map((row) => {
+                      const details = row.details || {};
+                      const extra =
+                        row.action === "CLIENT_ASSIGNED_ADMIN" && details.toAdminUsername
+                          ? ` → ${String(details.toAdminUsername)}`
+                          : row.action === "BULK_CLIENT_CREATED" && details.count
+                            ? ` (${details.count})`
+                            : row.action === "BULK_ASSIGNADMIN" && details.count
+                              ? ` (${details.count})`
+                              : "";
                       return (
                         <tr
-                          key={tx.id}
+                          key={row.id}
                           className="block md:table-row bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 md:border-b md:border-x-0 md:border-t-0 md:border-zinc-100 dark:md:border-zinc-800/60 rounded-xl md:rounded-none last:border-b-0 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
                         >
                           <td className="block md:table-cell px-4 py-3">
                             <div className="flex items-center justify-between gap-2 md:block">
-                              <Badge tone={credit ? "green" : tx.type === "DEBIT" ? "amber" : "purple"}>
-                                {txTypeLabel(tx.type, t)}
+                              <Badge tone={actionTone(row.action)}>
+                                {actionLabel(row.action, t)}
+                                {extra}
                               </Badge>
-                              <span className="md:hidden text-xs text-zinc-500">{formatDateTime(tx.createdAt)}</span>
+                              <span className="md:hidden text-xs text-zinc-500">
+                                {formatDateTime(row.createdAt)}
+                              </span>
                             </div>
                           </td>
-                          <td className="block md:table-cell px-4 py-2 md:py-3">
-                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colAmount")}</div>
-                            <span
-                              className={`flex items-center gap-1 font-medium ${credit ? "text-emerald-500 dark:text-emerald-400" : "text-amber-500 dark:text-amber-400"}`}
-                            >
-                              {credit ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                              {formatBytes(tx.amount)}
-                            </span>
-                          </td>
-                          <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-500 dark:text-zinc-400 text-xs">
-                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colBalance")}</div>
-                            {tx.balanceBefore != null && tx.balanceAfter != null ? (
-                              <div className="flex flex-col">
-                                <span className="text-zinc-400">{formatBytes(tx.balanceBefore)} &rarr;</span>
-                                <span className="font-medium text-zinc-700 dark:text-zinc-200">{formatBytes(tx.balanceAfter)}</span>
-                              </div>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-700 dark:text-zinc-300">
-                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colPanel")}</div>
-                            {tx.panel?.name ? (
-                              <span className="inline-flex flex-col">
-                                <span className="font-medium">{tx.panel.name}</span>
-                                <span className="text-[11px] text-zinc-400">{panelTypeLabel(tx.panel.panelType, t)}</span>
-                              </span>
-                            ) : (
-                              <span className="font-medium text-blue-600 dark:text-blue-400">{t("traffic.globalPoolPanel")}</span>
-                            )}
-                          </td>
-                          <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-700 dark:text-zinc-300">
-                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colDescription")}</div>
-                            {tx.description}
+                          <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-700 dark:text-zinc-200 font-medium">
+                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">
+                              {t("traffic.colClient")}
+                            </div>
+                            {row.clientEmail ??
+                              (typeof details.prefix === "string" ? `${details.prefix}*` : "—")}
                           </td>
                           <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-500 dark:text-zinc-400">
-                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">{t("traffic.colClient")}</div>
-                            {tx.client?.email ?? "—"}
+                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">
+                              {t("traffic.colActor")}
+                            </div>
+                            {row.actor?.username ?? "—"}
+                          </td>
+                          <td className="block md:table-cell px-4 py-2 md:py-3 text-zinc-500 dark:text-zinc-400 text-xs">
+                            <div className="md:hidden text-[10px] uppercase text-zinc-500 font-semibold mb-1 tracking-wider">
+                              {t("traffic.colDescription")}
+                            </div>
+                            {row.action === "CLIENT_ASSIGNED_ADMIN"
+                              ? [
+                                  details.fromAdminUsername
+                                    ? String(details.fromAdminUsername)
+                                    : "—",
+                                  details.toAdminUsername
+                                    ? String(details.toAdminUsername)
+                                    : "—",
+                                ].join(" → ")
+                              : row.action === "CLIENT_UPDATED"
+                                ? t("traffic.actionUpdated")
+                                : "—"}
                           </td>
                           <td className="hidden md:table-cell px-4 py-3 text-zinc-500 dark:text-zinc-400">
-                            {formatDateTime(tx.createdAt)}
+                            {formatDateTime(row.createdAt)}
                           </td>
                         </tr>
                       );
                     })}
-                    {(ledger.data?.data.length ?? 0) === 0 && (
+                    {(actions.data?.data.length ?? 0) === 0 && (
                       <tr className="block md:table-row">
-                        <td colSpan={7} className="block md:table-cell px-4 py-10 text-center text-zinc-500">
-                          {t("traffic.noTransactions")}
+                        <td colSpan={5} className="block md:table-cell px-4 py-10 text-center text-zinc-500">
+                          {t("traffic.actionsEmpty")}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              
-              {ledger.data && ledger.data.total > 0 && (
-                <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 sm:px-6">
-                  <div className="hidden sm:block">
-                    <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                      {t("common.paginationResults", {
-                        from: (page - 1) * 15 + 1,
-                        to: Math.min(page * 15, ledger.data.total),
-                        total: ledger.data.total,
-                      })}
-                    </p>
-                  </div>
-                  <div className="flex flex-1 justify-between sm:justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      aria-label={t("common.srPrevious")}
-                      className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <PrevIcon size={16} aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      aria-label={t("common.srNext")}
-                      className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <NextIcon size={16} aria-hidden />
-                    </button>
-                  </div>
-                </div>
+
+              {actions.data && actions.data.total > 0 && (
+                <PaginationBar
+                  page={page}
+                  totalPages={totalPages}
+                  total={actions.data.total}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  PrevIcon={PrevIcon}
+                  NextIcon={NextIcon}
+                  t={t}
+                />
               )}
             </Card>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function PaginationBar({
+  page,
+  totalPages,
+  total,
+  onPrev,
+  onNext,
+  PrevIcon,
+  NextIcon,
+  t,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+  PrevIcon: typeof ChevronLeft;
+  NextIcon: typeof ChevronRight;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  return (
+    <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 sm:px-6">
+      <div className="hidden sm:block">
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          {t("common.paginationResults", {
+            from: (page - 1) * 15 + 1,
+            to: Math.min(page * 15, total),
+            total,
+          })}
+        </p>
+      </div>
+      <div className="flex flex-1 justify-between sm:justify-end gap-2">
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={page === 1}
+          aria-label={t("common.srPrevious")}
+          className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <PrevIcon size={16} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={page >= totalPages}
+          aria-label={t("common.srNext")}
+          className="relative inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <NextIcon size={16} aria-hidden />
+        </button>
+      </div>
     </div>
   );
 }

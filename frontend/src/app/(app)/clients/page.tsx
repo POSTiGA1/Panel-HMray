@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Plus, ChevronDown, ChevronUp, Copy, Check, CheckCircle2,
   Trash2, X, Play, Square, CheckSquare, Eye, MoreVertical, QrCode, Link, Edit2, Power, 
-  Activity, Users, HardDrive, CalendarDays, Filter, FolderPlus, RotateCcw, AlertTriangle, Database, Network, Download
+  Activity, Users, HardDrive, CalendarDays, Filter, FolderPlus, RotateCcw, AlertTriangle, Database, Network, Download, UserPlus
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { ConnectionDetailsModal } from "@/components/ConnectionDetailsModal";
@@ -75,6 +75,7 @@ function bulkActionLabel(
     addTraffic: "clients.addTraffic",
     addDays: "clients.addDays",
     assignGroup: "clients.assignGroup",
+    assignAdmin: "clients.assignAdmin",
     assignInbounds: "clients.assignInbounds",
     exportSubs: "clients.exportSubs",
     setAllowedUsers: "clients.setAllowedUsers",
@@ -232,6 +233,7 @@ export default function ClientsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
   const [groupAssignModalOpen, setGroupAssignModalOpen] = useState(false);
+  const [adminAssignModalOpen, setAdminAssignModalOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -378,9 +380,10 @@ export default function ClientsPage() {
   const bulkMutation = useMutation({
     mutationFn: async (dto: {
       ids: string[];
-      action: "enable" | "disable" | "delete" | "cleanup" | "addTraffic" | "addDays" | "resetUsage" | "resetTraffic" | "assignGroup" | "assignInbounds" | "setAllowedUsers";
+      action: "enable" | "disable" | "delete" | "cleanup" | "addTraffic" | "addDays" | "resetUsage" | "resetTraffic" | "assignGroup" | "assignAdmin" | "assignInbounds" | "setAllowedUsers";
       value?: number;
       groupName?: string;
+      targetAdminId?: string;
       inboundIds?: string[];
     }) => (await api.post<any>("/clients/bulk", dto)).data,
     onSuccess: (d, vars) => {
@@ -398,6 +401,7 @@ export default function ClientsPage() {
       setBulkValueModal(null);
       setBulkInputValue("");
       setGroupAssignModalOpen(false);
+      setAdminAssignModalOpen(false);
       setTimeout(() => {
         qc.invalidateQueries({ queryKey: ["clients"] });
         qc.invalidateQueries({ queryKey: ["reseller-overview"] });
@@ -629,6 +633,8 @@ export default function ClientsPage() {
       });
     } else if (action === "assignGroup") {
       setGroupAssignModalOpen(true);
+    } else if (action === "assignAdmin") {
+      setAdminAssignModalOpen(true);
     } else if (action === "exportSubs") {
       bulkExportMutation.mutate({ ids: selectedIds });
     }
@@ -1500,6 +1506,14 @@ export default function ClientsPage() {
                 >
                   {t("clients.group")}
                 </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => handleBulkAction("assignAdmin")}
+                    className="rounded-full border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 whitespace-nowrap"
+                  >
+                    {t("clients.assignAdmin")}
+                  </button>
+                )}
                 <button
                   onClick={() => handleBulkAction("exportSubs")}
                   className="rounded-full border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 whitespace-nowrap"
@@ -1581,6 +1595,15 @@ export default function ClientsPage() {
                 >
                   <FolderPlus size={18} />
                 </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => handleBulkAction("assignAdmin")}
+                    className="rounded-full p-2 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    title={t("clients.assignAdmin")}
+                  >
+                    <UserPlus size={18} />
+                  </button>
+                )}
                 <button
                   onClick={() => handleBulkAction("exportSubs")}
                   className="rounded-full p-2 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
@@ -1617,6 +1640,7 @@ export default function ClientsPage() {
             selectedCount={selectedCount}
             onAction={handleBulkAction}
             showSetAllowedUsers={selectedSupportsBulkHwid}
+            showAssignAdmin={isSuperAdmin}
           />
         )}
       </AnimatePresence>
@@ -1675,6 +1699,24 @@ export default function ClientsPage() {
               groupName: grp,
             });
           }}
+        />
+      )}
+
+      {adminAssignModalOpen && (
+        <BulkAdminAssignModal
+          selectedCount={selectedCount}
+          admins={(adminsList?.data ?? []).filter(
+            (a) => a.role === "RESELLER" && a.status === "active",
+          )}
+          onClose={() => setAdminAssignModalOpen(false)}
+          onConfirm={(targetAdminId) => {
+            bulkMutation.mutate({
+              ids: selectedIds,
+              action: "assignAdmin",
+              targetAdminId,
+            });
+          }}
+          pending={bulkMutation.isPending}
         />
       )}
 
@@ -3077,7 +3119,7 @@ function BulkGroupAssignModal({
       <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">{t("clients.assignGroupTitle")}</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-65535"><X size={16} /></button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -3122,16 +3164,104 @@ function BulkGroupAssignModal({
   );
 }
 
+function BulkAdminAssignModal({
+  selectedCount,
+  admins,
+  onClose,
+  onConfirm,
+  pending,
+}: {
+  selectedCount: number;
+  admins: Admin[];
+  onClose: () => void;
+  onConfirm: (adminId: string) => void;
+  pending?: boolean;
+}) {
+  const t = useT();
+  const [targetAdminId, setTargetAdminId] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetAdminId) return;
+    onConfirm(targetAdminId);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/60 pt-[10dvh] px-4 sm:pt-0 sm:p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            {t("clients.assignAdminTitle")}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-zinc-500">
+            {t("clients.assignAdminHint", { count: selectedCount })}
+          </p>
+          <div>
+            <label className="mb-1 block text-xs text-zinc-500">
+              {t("clients.assignAdminLabel")}
+            </label>
+            <select
+              required
+              value={targetAdminId}
+              onChange={(e) => setTargetAdminId(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-100 outline-none focus:border-blue-500"
+            >
+              <option value="">{t("clients.assignAdminPlaceholder")}</option>
+              {admins.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.username}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] text-zinc-500">
+              {t("clients.assignAdminGroupHint")}
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              className="rounded-lg px-4 py-2 text-sm text-zinc-500 hover:text-zinc-700"
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={!targetAdminId || pending}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+            >
+              {pending ? t("common.saving") : t("clients.assignAdmin")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function MobileActionsSheet({
   onClose,
   selectedCount,
   onAction,
   showSetAllowedUsers,
+  showAssignAdmin,
 }: {
   onClose: () => void;
   selectedCount: number;
   onAction: (action: string) => void;
   showSetAllowedUsers?: boolean;
+  showAssignAdmin?: boolean;
 }) {
   const t = useT();
   const mobileActions = useMemo(
@@ -3145,10 +3275,13 @@ function MobileActionsSheet({
       { id: "disable", label: t("clients.disable"), icon: Square },
       { id: "exportSubs", label: t("clients.exportSubscriptionLinks"), icon: Download },
       { id: "assignGroup", label: t("clients.assignGroup"), icon: Users },
+      ...(showAssignAdmin
+        ? [{ id: "assignAdmin", label: t("clients.assignAdmin"), icon: UserPlus }]
+        : []),
       { id: "resetTraffic", label: t("clients.resetTrafficTitle"), icon: RotateCcw },
       { id: "delete", label: t("clients.deleteClients"), icon: Trash2, danger: true },
     ],
-    [t, showSetAllowedUsers],
+    [t, showSetAllowedUsers, showAssignAdmin],
   );
 
   return (

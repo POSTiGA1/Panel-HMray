@@ -63,6 +63,7 @@ export class BulkClientDto {
       'resetUsage',
       'resetTraffic',
       'assignGroup',
+      'assignAdmin',
       'assignInbounds',
       'setAllowedUsers',
     ],
@@ -77,6 +78,7 @@ export class BulkClientDto {
     'resetUsage',
     'resetTraffic',
     'assignGroup',
+    'assignAdmin',
     'assignInbounds',
     'setAllowedUsers',
   ])
@@ -90,10 +92,12 @@ export class BulkClientDto {
     | 'resetUsage'
     | 'resetTraffic'
     | 'assignGroup'
+    | 'assignAdmin'
     | 'assignInbounds'
     | 'setAllowedUsers';
   @ApiPropertyOptional() @IsOptional() @IsNumber() value?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() groupName?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() targetAdminId?: string;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

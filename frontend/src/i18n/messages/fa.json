@@ -509,7 +509,13 @@
     "noTrafficLimits": "بدون محدودیت ترافیک",
     "unlimitedTraffic": "ترافیک نامحدود",
     "exhausted": "تمام‌شده",
-    "mobileActions": "عملیات"
+    "mobileActions": "عملیات",
+    "assignAdmin": "افزودن به ادمین",
+    "assignAdminTitle": "تخصیص به ادمین",
+    "assignAdminHint": "{count} کلاینت انتخاب‌شده به ادمین منتقل می‌شوند. مالکیت و گروه ثنایی (نام کاربری ادمین) به‌روز می‌شود.",
+    "assignAdminLabel": "ادمین مقصد",
+    "assignAdminPlaceholder": "یک ریسلر انتخاب کنید…",
+    "assignAdminGroupHint": "کلاینت‌ها از گروه ادمین قبلی حذف و به گروه نام کاربری ادمین مقصد در ثنایی اضافه می‌شوند."
   },
   "connection": {
     "platformQr": "QR اشتراک پنل",
@@ -829,7 +835,22 @@
     "noTransactions": "تراکنشی با این معیار یافت نشد.",
     "destinations": "مقصد",
     "remainingQuota": "مانده سهمیه",
-    "unlimited": "نامحدود"
+    "unlimited": "نامحدود",
+    "tabLedger": "ترافیک",
+    "tabActions": "لاگ عملیات",
+    "actionsSubtitle": "ساخت، ویرایش، حذف و تخصیص کلاینت برای این ادمین",
+    "actionsSearchPlaceholder": "جستجوی کلاینت یا عملیات…",
+    "actionsLoadFailed": "بارگذاری لاگ عملیات ناموفق بود",
+    "actionsEmpty": "هنوز عملیاتی ثبت نشده است.",
+    "colAction": "عملیات",
+    "colActor": "توسط",
+    "actionCreated": "ساخت",
+    "actionUpdated": "ویرایش",
+    "actionDeleted": "حذف",
+    "actionCleanup": "پاکسازی",
+    "actionAssigned": "تخصیص به ادمین",
+    "actionBulkCreated": "ساخت گروهی",
+    "actionBulkAssigned": "تخصیص گروهی"
   },
   "migration": {
     "title": "مهاجرت",

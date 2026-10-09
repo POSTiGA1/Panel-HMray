@@ -92,4 +92,40 @@ export class TrafficController {
       panelId,
     );
   }
+
+  @Get('actions')
+  @ApiOperation({
+    summary: 'Client action log for the caller (create/update/delete/assign)',
+  })
+  getActions(
+    @Req() req: AuthRequest,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.trafficService.getActionLog(
+      req.user.id,
+      Number(page) || 1,
+      Number(limit) || 50,
+      search,
+    );
+  }
+
+  @Get('actions/:adminId')
+  @UseGuards(RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @ApiOperation({ summary: 'Client action log for a specific admin' })
+  getAdminActions(
+    @Param('adminId') adminId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.trafficService.getActionLog(
+      adminId,
+      Number(page) || 1,
+      Number(limit) || 50,
+      search,
+    );
+  }
 }

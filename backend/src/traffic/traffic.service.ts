@@ -522,6 +522,115 @@ export class TrafficService {
     };
   }
 
+  /**
+   * Client action audit log for an admin (create / update / delete / assign).
+   * Visible to the reseller themselves and to super-admin when viewing that admin.
+   */
+  async getActionLog(
+    adminId: string,
+    page = 1,
+    limit = 50,
+    search?: string,
+  ) {
+    const admin = await this.prisma.admin.findUnique({
+      where: { id: adminId },
+      select: { id: true, username: true },
+    });
+    if (!admin) throw new NotFoundException('Admin not found');
+
+    const clientActions = [
+      'CLIENT_CREATED',
+      'CLIENT_UPDATED',
+      'CLIENT_DELETED',
+      'CLIENT_CLEANUP',
+      'CLIENT_ASSIGNED_ADMIN',
+      'BULK_CLIENT_CREATED',
+      'BULK_ASSIGNADMIN',
+    ];
+
+    const owned = await this.prisma.client.findMany({
+      where: { adminId },
+      select: { id: true, email: true },
+    });
+    const ownedIds = owned.map((c) => c.id);
+    const emailById = new Map(owned.map((c) => [c.id, c.email]));
+
+    const orFilters: Prisma.AuditLogWhereInput[] = [
+      { adminId },
+      { details: { path: ['targetAdminId'], equals: adminId } },
+      { details: { path: ['toAdminId'], equals: adminId } },
+      { details: { path: ['fromAdminId'], equals: adminId } },
+    ];
+    if (ownedIds.length) {
+      orFilters.push({ entityId: { in: ownedIds } });
+    }
+
+    const where: Prisma.AuditLogWhereInput = {
+      entity: 'Client',
+      action: { in: clientActions },
+      OR: orFilters,
+    };
+
+    const q = String(search || '').trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            { details: { path: ['clientEmail'], string_contains: q } },
+            { details: { path: ['prefix'], string_contains: q } },
+            { action: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          admin: { select: { id: true, username: true } },
+        },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    // Resolve emails for older rows that only stored entityId.
+    const missingIds = rows
+      .map((r) => r.entityId)
+      .filter((id): id is string => !!id && !emailById.has(id));
+    if (missingIds.length) {
+      const extras = await this.prisma.client.findMany({
+        where: { id: { in: missingIds } },
+        select: { id: true, email: true },
+      });
+      for (const c of extras) emailById.set(c.id, c.email);
+    }
+
+    const data = rows.map((r) => {
+      const details = (r.details || {}) as Record<string, unknown>;
+      const clientEmail =
+        (typeof details.clientEmail === 'string' && details.clientEmail) ||
+        (r.entityId ? emailById.get(r.entityId) : undefined) ||
+        null;
+      return {
+        id: r.id,
+        action: r.action,
+        entityId: r.entityId,
+        createdAt: r.createdAt,
+        actor: r.admin
+          ? { id: r.admin.id, username: r.admin.username }
+          : null,
+        clientEmail,
+        details,
+      };
+    });
+
+    return { data, total, page, limit };
+  }
+
   private async ledgerPanelWhere(
     panelId?: string,
     includeGlobalPool = false,

@@ -509,7 +509,13 @@
     "noTrafficLimits": "No traffic limits",
     "unlimitedTraffic": "Unlimited Traffic",
     "exhausted": "Exhausted",
-    "mobileActions": "Actions"
+    "mobileActions": "Actions",
+    "assignAdmin": "Assign to Admin",
+    "assignAdminTitle": "Assign to Admin",
+    "assignAdminHint": "Move {count} selected clients to a reseller. Ownership and the 3x-ui group (admin username) will be updated.",
+    "assignAdminLabel": "Target admin",
+    "assignAdminPlaceholder": "Select a reseller…",
+    "assignAdminGroupHint": "Clients are removed from the previous admin group and added to the target admin username group on 3x-ui."
   },
   "connection": {
     "platformQr": "Platform Sub QR",
@@ -829,7 +835,22 @@
     "noTransactions": "No transactions found matching your criteria.",
     "destinations": "Destination",
     "remainingQuota": "Remaining quota",
-    "unlimited": "Unlimited"
+    "unlimited": "Unlimited",
+    "tabLedger": "Traffic",
+    "tabActions": "Action Log",
+    "actionsSubtitle": "Create, edit, delete, and assign actions for this admin",
+    "actionsSearchPlaceholder": "Search client or action…",
+    "actionsLoadFailed": "Failed to load action log",
+    "actionsEmpty": "No client actions recorded yet.",
+    "colAction": "Action",
+    "colActor": "By",
+    "actionCreated": "Created",
+    "actionUpdated": "Edited",
+    "actionDeleted": "Deleted",
+    "actionCleanup": "Cleanup",
+    "actionAssigned": "Assigned to admin",
+    "actionBulkCreated": "Bulk created",
+    "actionBulkAssigned": "Bulk assigned"
   },
   "migration": {
     "title": "Migration",
